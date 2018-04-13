@@ -167,8 +167,7 @@ Version         string The repo version.
 	Run: func(req *cmds.Request, res cmds.ResponseEmitter, env cmds.Environment) {
 		n, err := GetNode(env)
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 
 		sizeOnly, _ := req.Options["size-only"].(bool)
@@ -186,8 +185,7 @@ Version         string The repo version.
 
 		stat, err := corerepo.RepoStat(req.Context, n)
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 
 		cmds.EmitOnce(res, &stat)

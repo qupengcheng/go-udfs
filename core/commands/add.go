@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -140,17 +139,15 @@ You can now check what blocks have been created by:
 
 		return nil
 	},
-	Run: func(req *cmds.Request, res cmds.ResponseEmitter, env cmds.Environment) {
+	Run: func(req *cmds.Request, res cmds.ResponseEmitter, env cmds.Environment) error {
 		n, err := GetNode(env)
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 
 		cfg, err := n.Repo.Config()
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 		// check if repo will exceed storage limit if added
 		// TODO: this doesn't handle the case if the hashed file is already in blocks (deduplicated)
@@ -184,19 +181,14 @@ You can now check what blocks have been created by:
 
 		// nocopy -> filestoreEnabled
 		if nocopy && !cfg.Experimental.FilestoreEnabled {
-			res.SetError(filestore.ErrFilestoreNotEnabled, cmdkit.ErrClient)
-			return
+			return cmdkit.Errorf(cmdkit.ErrClient, filestore.ErrFilestoreNotEnabled.Error())
 		}
 
 		// nocopy -> rawblocks
 		if nocopy && !rawblks {
 			// fixed?
 			if rbset {
-				res.SetError(
-					fmt.Errorf("nocopy option requires '--raw-leaves' to be enabled as well"),
-					cmdkit.ErrNormal,
-				)
-				return
+				return fmt.Errorf("nocopy option requires '--raw-leaves' to be enabled as well")
 			}
 			// No, satisfy mandatory constraint.
 			rawblks = true
@@ -205,11 +197,7 @@ You can now check what blocks have been created by:
 		// (hash != "sha2-256") -> CIDv1
 		if hashFunStr != "sha2-256" && cidVer == 0 {
 			if cidVerSet {
-				res.SetError(
-					errors.New("CIDv0 only supports sha2-256"),
-					cmdkit.ErrClient,
-				)
-				return
+				return cmdkit.Errorf(cmdkit.ErrClient, "CIDv0 only supports sha2-256")
 			}
 			cidVer = 1
 		}
@@ -221,14 +209,12 @@ You can now check what blocks have been created by:
 
 		prefix, err := dag.PrefixForCidVersion(cidVer)
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 
 		hashFunCode, ok := mh.Names[strings.ToLower(hashFunStr)]
 		if !ok {
-			res.SetError(fmt.Errorf("unrecognized hash function: %s", strings.ToLower(hashFunStr)), cmdkit.ErrNormal)
-			return
+			return fmt.Errorf("unrecognized hash function: %s", strings.ToLower(hashFunStr))
 		}
 
 		prefix.MhType = hashFunCode
@@ -241,8 +227,7 @@ You can now check what blocks have been created by:
 				NilRepo: true,
 			})
 			if err != nil {
-				res.SetError(err, cmdkit.ErrNormal)
-				return
+				return err
 			}
 			n = nilnode
 		}
@@ -265,8 +250,7 @@ You can now check what blocks have been created by:
 
 		fileAdder, err := coreunix.NewAdder(req.Context, n.Pinning, n.Blockstore, dserv)
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 
 		fileAdder.Out = outChan
@@ -288,8 +272,7 @@ You can now check what blocks have been created by:
 			emptyDirNode.SetCidBuilder(fileAdder.CidBuilder)
 			mr, err := mfs.NewRoot(req.Context, md, emptyDirNode, nil)
 			if err != nil {
-				res.SetError(err, cmdkit.ErrNormal)
-				return
+				return err
 			}
 
 			fileAdder.SetMfsRoot(mr)
@@ -333,17 +316,12 @@ You can now check what blocks have been created by:
 			err = addAllAndPin(req.Files)
 		}()
 
-		defer res.Close()
-
 		err = res.Emit(outChan)
 		if err != nil {
-			log.Error(err)
-			return
+			return err
 		}
-		err = <-errCh
-		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-		}
+
+		return <-errCh
 	},
 	PostRun: cmds.PostRunMap{
 		cmds.CLI: func(req *cmds.Request, re cmds.ResponseEmitter) cmds.ResponseEmitter {
@@ -457,10 +435,11 @@ You can now check what blocks have been created by:
 			}
 
 			go func() {
+				e := res.Error()
 				// defer order important! First close outChan, then wait for output to finish, then close re
-				defer re.Close()
+				defer re.CloseWithError(e)
 
-				if e := res.Error(); e != nil {
+				if e != nil {
 					defer close(outChan)
 					re.SetError(e.Message, e.Code)
 					return
@@ -481,7 +460,7 @@ You can now check what blocks have been created by:
 					select {
 					case outChan <- v:
 					case <-req.Context.Done():
-						re.SetError(req.Context.Err(), cmdkit.ErrNormal)
+						re.CloseWithError(req.Context.Err())
 						return
 					}
 				}
