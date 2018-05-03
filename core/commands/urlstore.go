@@ -10,11 +10,11 @@ import (
 	ihelper "gx/ipfs/QmWv8MYwgPK4zXYv1et1snWJ6FWGqaL6xY2y9X1bRSKBxk/go-unixfs/importer/helpers"
 	trickle "gx/ipfs/QmWv8MYwgPK4zXYv1et1snWJ6FWGqaL6xY2y9X1bRSKBxk/go-unixfs/importer/trickle"
 
-	cmdkit "gx/ipfs/QmPVqQHEfLpqK7JLCsUkyam7rhuV3MAeZ9gueQQCrBwCta/go-ipfs-cmdkit"
 	mh "gx/ipfs/QmPnFwZ2JXKnXgMw8CdBPxn7FWh6LLdjUjxV1fKHuJnkr8/go-multihash"
-	cmds "gx/ipfs/QmUQb3xtNzkQCgTj2NjaqcJZNv2nfSSub2QAdy9DtQMRBT/go-ipfs-cmds"
 	chunk "gx/ipfs/QmWbCAB5f3LDumj4ncz1UCHSiyXrXxkMxZB6Wv35xi4P8z/go-ipfs-chunker"
+	cmds "gx/ipfs/QmYHLWkBuTpM6QcA6tD4c99QUcvur4ySEBf52iZZx4A9tu/go-ipfs-cmds"
 	cid "gx/ipfs/QmYjnkEL7i731PirfVH1sis89evN7jt4otSHw5D2xXXwUV/go-cid"
+	cmdkit "gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit"
 )
 
 var urlStoreCmd = &cmds.Command{
@@ -51,46 +51,39 @@ time.
 	},
 	Type: BlockStat{},
 
-	Run: func(req *cmds.Request, res cmds.ResponseEmitter, env cmds.Environment) {
+	Run: func(req *cmds.Request, res cmds.ResponseEmitter, env cmds.Environment) error {
 		url := req.Arguments[0]
 		n, err := GetNode(env)
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 
 		if !filestore.IsURL(url) {
-			res.SetError(fmt.Errorf("unsupported url syntax: %s", url), cmdkit.ErrNormal)
-			return
+			return fmt.Errorf("unsupported url syntax: %s", url)
 		}
 
 		cfg, err := n.Repo.Config()
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 
 		if !cfg.Experimental.UrlstoreEnabled {
-			res.SetError(filestore.ErrUrlstoreNotEnabled, cmdkit.ErrNormal)
-			return
+			return filestore.ErrUrlstoreNotEnabled
 		}
 
 		useTrickledag, _ := req.Options[trickleOptionName].(bool)
 
 		hreq, err := http.NewRequest("GET", url, nil)
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 
 		hres, err := http.DefaultClient.Do(hreq)
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 		if hres.StatusCode != http.StatusOK {
-			res.SetError(fmt.Errorf("expected code 200, got: %d", hres.StatusCode), cmdkit.ErrNormal)
-			return
+			return fmt.Errorf("expected code 200, got: %d", hres.StatusCode)
 		}
 
 		chk := chunk.NewSizeSplitter(hres.Body, chunk.DefaultBlockSize)
@@ -110,11 +103,10 @@ time.
 		}
 		root, err := layout(dbp.New(chk))
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 
-		cmds.EmitOnce(res, BlockStat{
+		return cmds.EmitOnce(res, BlockStat{
 			Key:  root.Cid().String(),
 			Size: int(hres.ContentLength),
 		})

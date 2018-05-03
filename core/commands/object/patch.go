@@ -11,8 +11,8 @@ import (
 	coreiface "github.com/ipfs/go-ipfs/core/coreapi/interface"
 	"github.com/ipfs/go-ipfs/core/coreapi/interface/options"
 
-	cmdkit "gx/ipfs/QmPVqQHEfLpqK7JLCsUkyam7rhuV3MAeZ9gueQQCrBwCta/go-ipfs-cmdkit"
-	cmds "gx/ipfs/QmUQb3xtNzkQCgTj2NjaqcJZNv2nfSSub2QAdy9DtQMRBT/go-ipfs-cmds"
+	cmds "gx/ipfs/QmYHLWkBuTpM6QcA6tD4c99QUcvur4ySEBf52iZZx4A9tu/go-ipfs-cmds"
+	cmdkit "gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit"
 )
 
 var ObjectPatchCmd = &cmds.Command{
@@ -67,7 +67,7 @@ the limit will not be respected by the network.
 		cmdkit.FileArg("data", true, false, "Data to append.").EnableStdin(),
 	},
 	Run: func(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment) error {
-		nd, err := GetNode(env)
+		api, err := GetApi(env)
 		if err != nil {
 			return err
 		}
@@ -87,7 +87,7 @@ the limit will not be respected by the network.
 			return err
 		}
 
-		cmds.EmitOnce(re, &Object{Hash: p.Cid().String()})
+		return cmds.EmitOnce(re, &Object{Hash: p.Cid().String()})
 	},
 	Type: Object{},
 	Encoders: cmds.EncoderMap{

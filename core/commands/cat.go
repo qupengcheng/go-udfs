@@ -9,8 +9,8 @@ import (
 	core "github.com/ipfs/go-ipfs/core"
 	coreunix "github.com/ipfs/go-ipfs/core/coreunix"
 
-	"gx/ipfs/QmPVqQHEfLpqK7JLCsUkyam7rhuV3MAeZ9gueQQCrBwCta/go-ipfs-cmdkit"
-	cmds "gx/ipfs/QmUQb3xtNzkQCgTj2NjaqcJZNv2nfSSub2QAdy9DtQMRBT/go-ipfs-cmds"
+	cmds "gx/ipfs/QmYHLWkBuTpM6QcA6tD4c99QUcvur4ySEBf52iZZx4A9tu/go-ipfs-cmds"
+	"gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit"
 )
 
 const progressBarMinSize = 1024 * 1024 * 8 // show progress bar for outputs > 8MiB
@@ -83,42 +83,33 @@ var CatCmd = &cmds.Command{
 		return res.Emit(reader)
 	},
 	PostRun: cmds.PostRunMap{
-		cmds.CLI: func(req *cmds.Request, re cmds.ResponseEmitter) cmds.ResponseEmitter {
-			reNext, res := cmds.NewChanResponsePair(req)
+		cmds.CLI: func(res cmds.Response, re cmds.ResponseEmitter) error {
+			if res.Length() > 0 && res.Length() < progressBarMinSize {
+				return cmds.Copy(re, res)
+			}
 
-			go func() {
-				if res.Length() > 0 && res.Length() < progressBarMinSize {
-					if err := cmds.Copy(re, res); err != nil {
-						re.SetError(err, cmdkit.ErrNormal)
+			for {
+				v, err := res.Next()
+				if err != nil {
+					if err == io.EOF {
+						return nil
 					}
-
-					return
+					return err
 				}
 
-				// Copy closes by itself, so we must not do this before
-				defer re.Close()
-				for {
-					v, err := res.Next()
-					if !cmds.HandleError(err, res, re) {
-						break
-					}
+				switch val := v.(type) {
+				case io.Reader:
+					bar, reader := progressBarForReader(os.Stderr, val, int64(res.Length()))
+					bar.Start()
 
-					switch val := v.(type) {
-					case io.Reader:
-						bar, reader := progressBarForReader(os.Stderr, val, int64(res.Length()))
-						bar.Start()
-
-						err = re.Emit(reader)
-						if err != nil {
-							log.Error(err)
-						}
-					default:
-						log.Warningf("cat postrun: received unexpected type %T", val)
+					err = re.Emit(reader)
+					if err != nil {
+						return err
 					}
+				default:
+					log.Warningf("cat postrun: received unexpected type %T", val)
 				}
-			}()
-
-			return reNext
+			}
 		},
 	},
 }

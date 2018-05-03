@@ -15,13 +15,13 @@ import (
 	blockservice "gx/ipfs/QmTZZrpd9o4vpYr9TEADW2EoJ9fzUtAgpXqjxZHbKR2T15/go-blockservice"
 	ft "gx/ipfs/QmWv8MYwgPK4zXYv1et1snWJ6FWGqaL6xY2y9X1bRSKBxk/go-unixfs"
 
-	cmdkit "gx/ipfs/QmPVqQHEfLpqK7JLCsUkyam7rhuV3MAeZ9gueQQCrBwCta/go-ipfs-cmdkit"
-	files "gx/ipfs/QmPVqQHEfLpqK7JLCsUkyam7rhuV3MAeZ9gueQQCrBwCta/go-ipfs-cmdkit/files"
 	mh "gx/ipfs/QmPnFwZ2JXKnXgMw8CdBPxn7FWh6LLdjUjxV1fKHuJnkr8/go-multihash"
 	pb "gx/ipfs/QmPtj12fdwuAqj9sBSTNUxBNu8kCGNp8b3o8yUzMm5GHpq/pb"
-	cmds "gx/ipfs/QmUQb3xtNzkQCgTj2NjaqcJZNv2nfSSub2QAdy9DtQMRBT/go-ipfs-cmds"
 	offline "gx/ipfs/QmVozMmsgK2PYyaHQsrcWLBYigb1m6mW8YhCBG2Cb4Uxq9/go-ipfs-exchange-offline"
 	bstore "gx/ipfs/QmYBEfMSquSGnuxBthUoBJNs3F6p4VAPPvAgxq6XXGvTPh/go-ipfs-blockstore"
+	cmds "gx/ipfs/QmYHLWkBuTpM6QcA6tD4c99QUcvur4ySEBf52iZZx4A9tu/go-ipfs-cmds"
+	cmdkit "gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit"
+	files "gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit/files"
 )
 
 // ErrDepthLimitExceeded indicates that the max depth has been exceeded.
@@ -324,11 +324,10 @@ You can now check what blocks have been created by:
 		return <-errCh
 	},
 	PostRun: cmds.PostRunMap{
-		cmds.CLI: func(req *cmds.Request, re cmds.ResponseEmitter) cmds.ResponseEmitter {
-			reNext, res := cmds.NewChanResponsePair(req)
-			outChan := make(chan interface{})
-
+		cmds.CLI: func(res cmds.Response, re cmds.ResponseEmitter) error {
 			sizeChan := make(chan int64, 1)
+			outChan := make(chan interface{})
+			req := res.Request()
 
 			sizeFile, ok := req.Files.(files.SizeFile)
 			if ok {
@@ -434,39 +433,33 @@ You can now check what blocks have been created by:
 				}
 			}
 
-			go func() {
-				e := res.Error()
-				// defer order important! First close outChan, then wait for output to finish, then close re
-				defer re.CloseWithError(e)
+			if e := res.Error(); e != nil {
+				close(outChan)
+				return e
+			}
 
-				if e != nil {
-					defer close(outChan)
-					re.SetError(e.Message, e.Code)
-					return
-				}
+			wait := make(chan struct{})
+			go progressBar(wait)
 
-				wait := make(chan struct{})
-				go progressBar(wait)
+			defer func() { <-wait }()
+			defer close(outChan)
 
-				defer func() { <-wait }()
-				defer close(outChan)
-
-				for {
-					v, err := res.Next()
-					if !cmds.HandleError(err, res, re) {
-						break
+			for {
+				v, err := res.Next()
+				if err != nil {
+					if err == io.EOF {
+						return nil
 					}
 
-					select {
-					case outChan <- v:
-					case <-req.Context.Done():
-						re.CloseWithError(req.Context.Err())
-						return
-					}
+					return err
 				}
-			}()
 
-			return reNext
+				select {
+				case outChan <- v:
+				case <-req.Context.Done():
+					return req.Context.Err()
+				}
+			}
 		},
 	},
 	Type: coreunix.AddedObject{},

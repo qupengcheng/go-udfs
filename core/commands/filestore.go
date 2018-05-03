@@ -12,9 +12,9 @@ import (
 	e "github.com/ipfs/go-ipfs/core/commands/e"
 	"github.com/ipfs/go-ipfs/filestore"
 
-	"gx/ipfs/QmPVqQHEfLpqK7JLCsUkyam7rhuV3MAeZ9gueQQCrBwCta/go-ipfs-cmdkit"
-	cmds "gx/ipfs/QmUQb3xtNzkQCgTj2NjaqcJZNv2nfSSub2QAdy9DtQMRBT/go-ipfs-cmds"
+	cmds "gx/ipfs/QmYHLWkBuTpM6QcA6tD4c99QUcvur4ySEBf52iZZx4A9tu/go-ipfs-cmds"
 	cid "gx/ipfs/QmYjnkEL7i731PirfVH1sis89evN7jt4otSHw5D2xXXwUV/go-cid"
+	"gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit"
 )
 
 var FileStoreCmd = &cmds.Command{
@@ -60,51 +60,49 @@ The output is:
 			})
 
 			return res.Emit(out)
-		} else {
-			fileOrder, _ := req.Options["file-order"].(bool)
-			next, err := filestore.ListAll(fs, fileOrder)
-			if err != nil {
-				return err
-			}
-
-			out := listResToChan(req.Context, next)
-			return res.Emit(out)
 		}
+
+		fileOrder, _ := req.Options["file-order"].(bool)
+		next, err := filestore.ListAll(fs, fileOrder)
+		if err != nil {
+			return err
+		}
+
+		out := listResToChan(req.Context, next)
+		return res.Emit(out)
 	},
 	PostRun: cmds.PostRunMap{
-		cmds.CLI: func(req *cmds.Request, re cmds.ResponseEmitter) cmds.ResponseEmitter {
-			reNext, res := cmds.NewChanResponsePair(req)
-
-			go func() {
-				defer re.Close()
-
-				var errors bool
-				for {
-					v, err := res.Next()
-					if !cmds.HandleError(err, res, re) {
+		cmds.CLI: func(res cmds.Response, re cmds.ResponseEmitter) error {
+			var errors bool
+			for {
+				v, err := res.Next()
+				if err != nil {
+					if err == io.EOF {
 						break
 					}
-
-					r, ok := v.(*filestore.ListRes)
-					if !ok {
-						log.Error(e.New(e.TypeErr(r, v)))
-						return
-					}
-
-					if r.ErrorMsg != "" {
-						errors = true
-						fmt.Fprintf(os.Stderr, "%s\n", r.ErrorMsg)
-					} else {
-						fmt.Fprintf(os.Stdout, "%s\n", r.FormatLong())
-					}
+					return err
 				}
 
-				if errors {
-					re.SetError("errors while displaying some entries", cmdkit.ErrNormal)
+				r, ok := v.(*filestore.ListRes)
+				if !ok {
+					// TODO or just return that error? why didn't we do that before?
+					log.Error(e.New(e.TypeErr(r, v)))
+					break
 				}
-			}()
 
-			return reNext
+				if r.ErrorMsg != "" {
+					errors = true
+					fmt.Fprintf(os.Stderr, "%s\n", r.ErrorMsg)
+				} else {
+					fmt.Fprintf(os.Stdout, "%s\n", r.FormatLong())
+				}
+			}
+
+			if errors {
+				return fmt.Errorf("errors while displaying some entries")
+			}
+
+			return nil
 		},
 	},
 	Type: filestore.ListRes{},

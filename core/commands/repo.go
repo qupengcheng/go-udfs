@@ -15,11 +15,11 @@ import (
 	corerepo "github.com/ipfs/go-ipfs/core/corerepo"
 	fsrepo "github.com/ipfs/go-ipfs/repo/fsrepo"
 
-	cmdkit "gx/ipfs/QmPVqQHEfLpqK7JLCsUkyam7rhuV3MAeZ9gueQQCrBwCta/go-ipfs-cmdkit"
 	config "gx/ipfs/QmQSG7YCizeUH2bWatzp6uK9Vm3m7LA5jpxGa9QqgpNKw4/go-ipfs-config"
-	cmds "gx/ipfs/QmUQb3xtNzkQCgTj2NjaqcJZNv2nfSSub2QAdy9DtQMRBT/go-ipfs-cmds"
 	bstore "gx/ipfs/QmYBEfMSquSGnuxBthUoBJNs3F6p4VAPPvAgxq6XXGvTPh/go-ipfs-blockstore"
+	cmds "gx/ipfs/QmYHLWkBuTpM6QcA6tD4c99QUcvur4ySEBf52iZZx4A9tu/go-ipfs-cmds"
 	cid "gx/ipfs/QmYjnkEL7i731PirfVH1sis89evN7jt4otSHw5D2xXXwUV/go-cid"
+	cmdkit "gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit"
 )
 
 type RepoVersion struct {
@@ -98,7 +98,7 @@ order to reclaim hard disk space.
 					}
 				}
 				if errs {
-					res.SetError(fmt.Errorf("encountered errors during gc run"), cmdkit.ErrNormal)
+					outChan <- &GcResult{Error: "encountered errors during gc run"}
 				}
 			} else {
 				err := corerepo.CollectResult(req.Context(), gcOutChan, func(k *cid.Cid) {
@@ -164,7 +164,7 @@ Version         string The repo version.
 		cmdkit.BoolOption("size-only", "Only report RepoSize and StorageMax."),
 		cmdkit.BoolOption("human", "Output sizes in MiB."),
 	},
-	Run: func(req *cmds.Request, res cmds.ResponseEmitter, env cmds.Environment) {
+	Run: func(req *cmds.Request, res cmds.ResponseEmitter, env cmds.Environment) error {
 		n, err := GetNode(env)
 		if err != nil {
 			return err
@@ -174,13 +174,12 @@ Version         string The repo version.
 		if sizeOnly {
 			sizeStat, err := corerepo.RepoSize(req.Context, n)
 			if err != nil {
-				res.SetError(err, cmdkit.ErrNormal)
-				return
+				return err
 			}
 			cmds.EmitOnce(res, &corerepo.Stat{
 				SizeStat: sizeStat,
 			})
-			return
+			return nil
 		}
 
 		stat, err := corerepo.RepoStat(req.Context, n)
@@ -188,7 +187,7 @@ Version         string The repo version.
 			return err
 		}
 
-		cmds.EmitOnce(res, &stat)
+		return cmds.EmitOnce(res, &stat)
 	},
 	Type: &corerepo.Stat{},
 	Encoders: cmds.EncoderMap{
