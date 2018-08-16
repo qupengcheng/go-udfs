@@ -10,9 +10,9 @@ import (
 	cmds "github.com/ipfs/go-ipfs/commands"
 	"github.com/ipfs/go-ipfs/core"
 	e "github.com/ipfs/go-ipfs/core/commands/e"
-	path "gx/ipfs/QmWMcvZbNvk5codeqbm7L89C9kqSwka4KaHnDb8HRnxsSL/go-path"
 
-	"gx/ipfs/QmPVqQHEfLpqK7JLCsUkyam7rhuV3MAeZ9gueQQCrBwCta/go-ipfs-cmdkit"
+	cmdkit "gx/ipfs/QmPVqQHEfLpqK7JLCsUkyam7rhuV3MAeZ9gueQQCrBwCta/go-ipfs-cmdkit"
+	path "gx/ipfs/QmWMcvZbNvk5codeqbm7L89C9kqSwka4KaHnDb8HRnxsSL/go-path"
 	cid "gx/ipfs/QmYjnkEL7i731PirfVH1sis89evN7jt4otSHw5D2xXXwUV/go-cid"
 	ipld "gx/ipfs/QmaA8GkXUYinkkndvg7T6Tx7gYXemhxjaxLisEPes7Rf1P/go-ipld-format"
 )
@@ -251,8 +251,7 @@ type RefWriter struct {
 
 // WriteRefs writes refs of the given object to the underlying writer.
 func (rw *RefWriter) WriteRefs(n ipld.Node) (int, error) {
-	// refs does not check the root and starts directly at depth 1
-	return rw.writeRefsRecursive(n, 1)
+	return rw.writeRefsRecursive(n, 0)
 
 }
 
@@ -262,18 +261,15 @@ func (rw *RefWriter) writeRefsRecursive(n ipld.Node, depth int) (int, error) {
 	var count int
 	for i, ng := range ipld.GetDAG(rw.Ctx, rw.DAG, n) {
 		lc := n.Links()[i].Cid
-		keepGoing, seen := rw.visit(lc, depth)
-
-		// Keep exploring if unvisited
-		if !keepGoing {
-			continue
-		}
-
-		// Write edge if not seen before
-		if !seen || seen && !rw.Unique {
+		unexplored, written := rw.visit(lc, depth+1) // The children are at depth+1
+		if !written {
 			if err := rw.WriteEdge(nc, lc, n.Links()[i].Name); err != nil {
 				return count, err
 			}
+		}
+
+		if !unexplored {
+			continue
 		}
 
 		nd, err := ng.Get(rw.Ctx)
@@ -290,10 +286,26 @@ func (rw *RefWriter) writeRefsRecursive(n ipld.Node, depth int) (int, error) {
 	return count, nil
 }
 
-// visit returns false if we should not re-explore the tree under a Cid, or
-// true otherwise. The second return argument indicates whether the Cid was seen
-// before.
+// visit returns two values:
+// - first indicates if we should keep traversing the DAG.
+// - second indicates if the given Cid should be printed to the user.
+//
+// visit will do branch pruning depending on rw.MaxDepth, previously visited
+// cids and whether rw.Unique is set. i.e. rw.Unique = false and
+// rw.MaxDepth = 1 disables any pruning. But setting rw.Unique to true will
+// prune already visited branches.
 func (rw *RefWriter) visit(c *cid.Cid, depth int) (bool, bool) {
+	overMaxDepth := rw.MaxDepth >= 0 && depth > rw.MaxDepth
+
+	// When not unique, only avoid exploring too deep
+	// We do not track a set of visited nodes in this case.
+	// We do not print anything too deep though.
+	if !rw.Unique {
+		return !overMaxDepth, overMaxDepth
+	}
+
+	// Unique == true.
+	// We want Unique Cids. We keep track of seen Cids, and their depth
 	if rw.seen == nil {
 		rw.seen = make(map[string]int)
 	}
@@ -301,29 +313,26 @@ func (rw *RefWriter) visit(c *cid.Cid, depth int) (bool, bool) {
 	key := string(c.Bytes())
 	oldDepth, ok := rw.seen[key]
 
-	// we should never explore over max-depth
-	if rw.MaxDepth >= 0 && depth > rw.MaxDepth {
-		return false, ok
+	// Never explore over max-depth. Never print nodes over
+	// max depth.
+	if overMaxDepth {
+		return false, false
 	}
 
-	// normally we would shortcut an already visited branch,
-	// but we should re-explore when non-unique
-	if ok && rw.MaxDepth < 0 {
-		return !rw.Unique, ok
+	// Branch pruning cases:
+	// - We saw the Cid before and either:
+	//   - Depth is unlimited (MaxDepth = -1)
+	//   - We saw it higher (smaller depth) in the DAG (means we must have
+	//     explored deep enough before)
+	if ok && (rw.MaxDepth < 0 || oldDepth <= depth) {
+		return false, true
 	}
 
-	// we always re-explore when the cid is new or
-	// we need to go deeper than before
-	if !ok || oldDepth > depth {
-		rw.seen[key] = depth
-		return true, ok
-	}
-
-	// The final case by elimination is:
-	// - ok is true (we visited before)
-	// - oldDepth <= depth (we visited higher in the tree)
-	// In this case we only keep going if don't want Unique cids.
-	return !rw.Unique, ok
+	// Final case, we must keep exploring the DAG from this CID.
+	// We note down it's depth because it was either not seen
+	// or is lower than last time.
+	rw.seen[key] = depth
+	return true, ok
 }
 
 // Write one edge
