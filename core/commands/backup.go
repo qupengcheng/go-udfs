@@ -83,10 +83,15 @@ var BackupCmd = &cmds.Command{
 				return
 
 			case p := <-closestPeers:
-				peers = append(peers, p)
-				if len(peers) >= numberForBackup {
-					lookup = false
-					cancel()
+				// issiue: it seems get a empty id sometimes ?
+				if p.Pretty() == "" {
+					log.Error("BackupCmd got a empty closest peer!")
+				}else{
+					peers = append(peers, p)
+					if len(peers) >= numberForBackup {
+						lookup = false
+						cancel()
+					}
 				}
 			}
 		}
