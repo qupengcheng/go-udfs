@@ -49,6 +49,7 @@ ADVANCED COMMANDS
   key           Create and list IPNS name keypairs
   dns           Resolve DNS links
   pin           Pin objects to local storage
+  backup		Backup objects to remote storage
   repo          Manipulate the IPFS repository
   stats         Various operational stats
   p2p           Libp2p stream mounting

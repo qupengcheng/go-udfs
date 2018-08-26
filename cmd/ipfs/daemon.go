@@ -400,9 +400,12 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	// initialize metrics collector
 	prometheus.MustRegister(&corehttp.IpfsNodeCollector{Node: node})
 
-	fmt.Printf("Daemon is ready\n")
+	if !offline {
+		commands.SetupBackupHandler(node)
+		fmt.Println("backup function started")
+	}
 
-	commands.SetupBackupHandler(node)
+	fmt.Printf("Daemon is ready\n")
 
 	// collect long-running errors and block for shutdown
 	// TODO(cryptix): our fuse currently doesnt follow this pattern for graceful shutdown

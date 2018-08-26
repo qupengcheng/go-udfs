@@ -13,13 +13,15 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+
 	"github.com/pkg/errors"
 
 	"gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit"
 
+	cid "gx/ipfs/QmYVNvtQkeZ6AKSwDrjQTs432QtL6umrrK41EBq3cu7iSP/go-cid"
+
 	cmds "github.com/ipfs/go-ipfs/commands"
 	core "github.com/ipfs/go-ipfs/core"
-	cid "gx/ipfs/QmYVNvtQkeZ6AKSwDrjQTs432QtL6umrrK41EBq3cu7iSP/go-cid"
 	e "github.com/ipfs/go-ipfs/core/commands/e"
 	config "github.com/ipfs/go-ipfs/repo/config"
 )
@@ -180,7 +182,8 @@ var BackupCmd = &cmds.Command{
 				fmt.Fprintf(buf, "backup success to %s\n", s.ID)
 			}
 			for _, f := range out.Failed {
-				fmt.Fprintf(buf, "backup failed to %s : \n", f.ID, f.Msg)
+				fmt.Println(f.ID, f.Msg)
+				fmt.Fprintf(buf, "backup failed to %s : %s\n", f.ID, f.Msg)
 			}
 
 			return buf, nil
