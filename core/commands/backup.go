@@ -72,7 +72,7 @@ var BackupCmd = &cmds.Command{
 			return
 		}
 
-		var peers []peer.ID
+		peers := make(map[peer.ID]struct{}, 0)
 		lookup := true
 		for lookup {
 			select {
@@ -85,7 +85,7 @@ var BackupCmd = &cmds.Command{
 				if p.Pretty() == "" {
 					log.Error("BackupCmd got a empty closest peer!")
 				} else {
-					peers = append(peers, p)
+					peers[p] = struct{}{}
 					if len(peers) >= numberForBackup {
 						lookup = false
 					}
@@ -139,7 +139,7 @@ var BackupCmd = &cmds.Command{
 		// 发送cid
 		results := make(chan *BackupResult, len(peersForBackup))
 		var wg sync.WaitGroup
-		for _, p := range peersForBackup {
+		for p := range peersForBackup {
 			wg.Add(1)
 			go func(id peer.ID) {
 				e := doBackup(n, id, c)
