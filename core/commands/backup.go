@@ -64,36 +64,39 @@ var BackupCmd = &cmds.Command{
 		}
 
 		// get peers for backup
-		ctx, cancel := context.WithCancel(n.Context())
-		closestPeers, err := n.DHT.GetClosestPeers(ctx, c.KeyString())
+
+		toctx, _ := context.WithTimeout(n.Context(), timeoutForLookup)
+		closestPeers, err := n.DHT.GetClosestPeers(toctx, c.KeyString())
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
+			res.SetError(errors.Wrap(err, "got closest peers timeout"), cmdkit.ErrNormal)
 			return
 		}
 
-		toctx, _ := context.WithTimeout(ctx, timeoutForLookup)
 		var peers []peer.ID
 		lookup := true
 		for lookup {
 			select {
-			case <-toctx.Done():
-				cancel()
-				lookup = false
-				res.SetError(toctx.Err(), cmdkit.ErrNormal)
-				return
+			case p, closed := <-closestPeers:
+				if closed {
+					lookup = false
+				}
 
-			case p := <-closestPeers:
-				// issiue: it seems get a empty id sometimes ?
+				// issue: it seems get a empty id sometimes ?
 				if p.Pretty() == "" {
 					log.Error("BackupCmd got a empty closest peer!")
-				}else{
+				} else {
 					peers = append(peers, p)
 					if len(peers) >= numberForBackup {
 						lookup = false
-						cancel()
 					}
 				}
 			}
+		}
+
+		if len(peers) < numberForBackup {
+			res.SetError(errors.Errorf("Failed to find the minimum number of closest peers required: %d/%d", len(peers),
+				numberForBackup), cmdkit.ErrNormal)
+			return
 		}
 
 		log.Debug("found the nodes to backup")
