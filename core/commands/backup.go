@@ -65,7 +65,8 @@ var BackupCmd = &cmds.Command{
 
 		// get peers for backup
 
-		toctx, _ := context.WithTimeout(n.Context(), timeoutForLookup)
+		toctx, cancel := context.WithTimeout(n.Context(), timeoutForLookup)
+		defer cancel()
 		closestPeers, err := n.DHT.GetClosestPeers(toctx, c.KeyString())
 		if err != nil {
 			res.SetError(errors.Wrap(err, "got closest peers timeout"), cmdkit.ErrNormal)
@@ -73,23 +74,12 @@ var BackupCmd = &cmds.Command{
 		}
 
 		peers := make(map[peer.ID]struct{}, 0)
-		lookup := true
-		for lookup {
-			select {
-			case p, closed := <-closestPeers:
-				if closed {
-					lookup = false
-				}
+		for p := range closestPeers {
+			peers[p] = struct{}{}
 
-				// issue: it seems get a empty id sometimes ?
-				if p.Pretty() == "" {
-					log.Error("BackupCmd got a empty closest peer!")
-				} else {
-					peers[p] = struct{}{}
-					if len(peers) >= numberForBackup {
-						lookup = false
-					}
-				}
+			if len(peers) >= numberForBackup {
+				cancel()
+				break
 			}
 		}
 
@@ -101,40 +91,6 @@ var BackupCmd = &cmds.Command{
 
 		log.Debug("found the nodes to backup")
 		peersForBackup := peers
-
-		//peers, err := loadBootstrapPeers(n)
-		//if err != nil {
-		//	res.SetError(errors.New("failed to parse bootstrap peers from config"), cmdkit.ErrNormal)
-		//	return
-		//}
-		//
-		//var connectedPeers []pstore.PeerInfo
-		//for _, p := range peers {
-		//	if n.PeerHost.Network().Connectedness(p.ID) == inet.Connected {
-		//		connectedPeers = append(connectedPeers, p)
-		//	}
-		//}
-		//if len(connectedPeers) < numberForBackup {
-		//	res.SetError(errors.New("not enught bootstrap node to backup"), cmdkit.ErrNormal)
-		//	return
-		//}
-
-		// random some node for backup
-		//var peersForBackup []pstore.PeerInfo
-		//if len(connectedPeers) > numberForBackup {
-		//	// get closest peers for backup
-		//
-		//
-		//	// get random peers for backup
-		//	for _, val := range rand.Perm(len(connectedPeers)) {
-		//		peersForBackup = append(peersForBackup, connectedPeers[val])
-		//		if len(peersForBackup) >= numberForBackup {
-		//			break
-		//		}
-		//	}
-		//}else{
-		//	peersForBackup = connectedPeers
-		//}
 
 		// 发送cid
 		results := make(chan *BackupResult, len(peersForBackup))
@@ -190,7 +146,6 @@ var BackupCmd = &cmds.Command{
 				fmt.Fprintf(buf, "backup success to %s\n", s.ID)
 			}
 			for _, f := range out.Failed {
-				fmt.Println(f.ID, f.Msg)
 				fmt.Fprintf(buf, "backup failed to %s : %s\n", f.ID, f.Msg)
 			}
 
@@ -208,7 +163,7 @@ func doBackup(n *core.IpfsNode, id peer.ID, c *cid.Cid) error {
 	defer s.Close()
 
 	// TODO: consider to use protobuf, now just direct send the cid
-	_, err = s.Write([]byte(c.KeyString() + "\n"))
+	_, err = s.Write([]byte(c.String() + "\n"))
 	if err != nil {
 		return err
 	}
@@ -307,9 +262,9 @@ func SetupBackupHandler(node *core.IpfsNode) {
 			return
 		}
 
-		c, err := cid.Cast([]byte(bs[:len(bs)-1]))
+		c, err := cid.Decode(bs[:len(bs)-1])
 		if err != nil {
-			errRet = errors.Wrap(err, "parse cid failed")
+			errRet = errors.Wrap(err, "decode cid failed")
 			return
 		}
 		log.Debug("backup-handler cid=", c.String())
