@@ -7,8 +7,7 @@ import (
 	"fmt"
 	inet "gx/ipfs/QmPjvxTpVH8qJyQDnxnsxF9kv9jezKD1kozz1hs3fCGsNh/go-libp2p-net"
 	"gx/ipfs/QmZNkThpqfVXs9GNbexPrfBbXSLNYeKrE7jwFM2oqHbyqN/go-libp2p-protocol"
-	pstore "gx/ipfs/QmZR2XWVVBCtbgBWnQhWk2xcQfaR3W8faQPriAiaaj7rsr/go-libp2p-peerstore"
-	peer "gx/ipfs/QmdVrMn1LhB4ybb8hMVaMLXnA8XRSewMnK6YqXKXoTcRvN/go-libp2p-peer"
+	"gx/ipfs/QmdVrMn1LhB4ybb8hMVaMLXnA8XRSewMnK6YqXKXoTcRvN/go-libp2p-peer"
 	"io"
 	"os/exec"
 	"sync"
@@ -18,12 +17,11 @@ import (
 
 	"gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit"
 
-	cid "gx/ipfs/QmYVNvtQkeZ6AKSwDrjQTs432QtL6umrrK41EBq3cu7iSP/go-cid"
+	"gx/ipfs/QmYVNvtQkeZ6AKSwDrjQTs432QtL6umrrK41EBq3cu7iSP/go-cid"
 
 	cmds "github.com/ipfs/go-ipfs/commands"
-	core "github.com/ipfs/go-ipfs/core"
-	e "github.com/ipfs/go-ipfs/core/commands/e"
-	config "github.com/ipfs/go-ipfs/repo/config"
+	"github.com/ipfs/go-ipfs/core"
+	"github.com/ipfs/go-ipfs/core/commands/e"
 )
 
 const ProtocolBackup protocol.ID = "/backup/0.0.1"
@@ -67,9 +65,9 @@ var BackupCmd = &cmds.Command{
 
 		toctx, cancel := context.WithTimeout(n.Context(), timeoutForLookup)
 		defer cancel()
-		closestPeers, err := n.DHT.GetClosestPeers(toctx, c.KeyString())
+		closestPeers, err := n.DHT.GetClosestMasterPeers(toctx, c.KeyString())
 		if err != nil {
-			res.SetError(errors.Wrap(err, "got closest peers timeout"), cmdkit.ErrNormal)
+			res.SetError(errors.Wrap(err, "got closest master peers timeout"), cmdkit.ErrNormal)
 			return
 		}
 
@@ -89,7 +87,7 @@ var BackupCmd = &cmds.Command{
 			return
 		}
 
-		log.Debug("found the nodes to backup")
+		log.Debug("found the peers to backup:", peers)
 		peersForBackup := peers
 
 		// 发送cid
@@ -181,48 +179,6 @@ func doBackup(n *core.IpfsNode, id peer.ID, c *cid.Cid) error {
 	}
 
 	return errors.New(bs)
-}
-
-func pidsToStrings(ps []peer.ID) []string {
-	out := make([]string, 0, len(ps))
-	for _, p := range ps {
-		out = append(out, p.Pretty())
-	}
-	return out
-}
-
-func loadBootstrapPeers(n *core.IpfsNode) ([]pstore.PeerInfo, error) {
-	cfg, err := n.Repo.Config()
-	if err != nil {
-		return nil, err
-	}
-
-	parsed, err := cfg.BootstrapPeers()
-	if err != nil {
-		return nil, err
-	}
-	return toPeerInfos(parsed), nil
-}
-
-func toPeerInfos(bpeers []config.BootstrapPeer) []pstore.PeerInfo {
-	pinfos := make(map[peer.ID]*pstore.PeerInfo)
-	for _, bootstrap := range bpeers {
-		pinfo, ok := pinfos[bootstrap.ID()]
-		if !ok {
-			pinfo = new(pstore.PeerInfo)
-			pinfos[bootstrap.ID()] = pinfo
-			pinfo.ID = bootstrap.ID()
-		}
-
-		pinfo.Addrs = append(pinfo.Addrs, bootstrap.Transport())
-	}
-
-	var peers []pstore.PeerInfo
-	for _, pinfo := range pinfos {
-		peers = append(peers, *pinfo)
-	}
-
-	return peers
 }
 
 func SetupBackupHandler(node *core.IpfsNode) {

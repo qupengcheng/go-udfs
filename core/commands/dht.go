@@ -9,18 +9,18 @@ import (
 	"time"
 
 	cmds "github.com/ipfs/go-ipfs/commands"
-	e "github.com/ipfs/go-ipfs/core/commands/e"
+	"github.com/ipfs/go-ipfs/core/commands/e"
 	dag "github.com/ipfs/go-ipfs/merkledag"
-	path "github.com/ipfs/go-ipfs/path"
+	"github.com/ipfs/go-ipfs/path"
 
 	b58 "gx/ipfs/QmWFAMPqsEyUX7gDUsRVmMWz59FxSpJ1b2v6bJ1yYzo7jY/go-base58-fast/base58"
-	cid "gx/ipfs/QmYVNvtQkeZ6AKSwDrjQTs432QtL6umrrK41EBq3cu7iSP/go-cid"
-	routing "gx/ipfs/QmZ383TySJVeZWzGnWui6pRcKyYZk9VkKTuW7tmKRWk5au/go-libp2p-routing"
+	"gx/ipfs/QmYVNvtQkeZ6AKSwDrjQTs432QtL6umrrK41EBq3cu7iSP/go-cid"
+	"gx/ipfs/QmZ383TySJVeZWzGnWui6pRcKyYZk9VkKTuW7tmKRWk5au/go-libp2p-routing"
 	notif "gx/ipfs/QmZ383TySJVeZWzGnWui6pRcKyYZk9VkKTuW7tmKRWk5au/go-libp2p-routing/notifications"
 	pstore "gx/ipfs/QmZR2XWVVBCtbgBWnQhWk2xcQfaR3W8faQPriAiaaj7rsr/go-libp2p-peerstore"
 	ipld "gx/ipfs/QmZtNq8dArGfnpCZfx2pUNY7UcjGhVp5qqwQ4hH6mpTMRQ/go-ipld-format"
 	"gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit"
-	peer "gx/ipfs/QmdVrMn1LhB4ybb8hMVaMLXnA8XRSewMnK6YqXKXoTcRvN/go-libp2p-peer"
+	"gx/ipfs/QmdVrMn1LhB4ybb8hMVaMLXnA8XRSewMnK6YqXKXoTcRvN/go-libp2p-peer"
 )
 
 var ErrNotDHT = errors.New("routing service is not a DHT")
@@ -41,6 +41,7 @@ var DhtCmd = &cmds.Command{
 		"get":       getValueDhtCmd,
 		"put":       putValueDhtCmd,
 		"provide":   provideRefDhtCmd,
+		"routing":   routingDhtCmd,
 	},
 }
 
@@ -789,4 +790,36 @@ func escapeDhtKey(s string) (string, error) {
 	default:
 		return "", errors.New("invalid key")
 	}
+}
+
+var routingDhtCmd = &cmds.Command{
+	Helptext: cmdkit.HelpText{
+		Tagline: "Given a key, query the routing system for its best value.",
+		ShortDescription: `
+Outputs the best value for the given key.
+
+There may be several different values for a given key stored in the routing
+system; in this context 'best' means the record that is most desirable. There is
+no one metric for 'best': it depends entirely on the key type. For IPNS, 'best'
+is the record that is both valid and has the highest sequence number (freshest).
+Different key types can specify other 'best' rules.
+`,
+	},
+	Run: func(req cmds.Request, res cmds.Response) {
+		n, err := req.InvocContext().GetNode()
+		if err != nil {
+			res.SetError(err, cmdkit.ErrNormal)
+			return
+		}
+
+		if n.Routing == nil {
+			res.SetError(errNotOnline, cmdkit.ErrNormal)
+			return
+		}
+
+		buf := bytes.NewBuffer(nil)
+		n.DHT.WriteRoutingTable(buf)
+		res.SetOutput(buf)
+	},
+	Type: bytes.Buffer{},
 }

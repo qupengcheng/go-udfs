@@ -28,6 +28,8 @@ type Config struct {
 
 	Reprovider   Reprovider
 	Experimental Experiments
+
+	Master bool
 }
 
 const (

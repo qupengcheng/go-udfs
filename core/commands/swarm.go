@@ -2,12 +2,13 @@ package commands
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"path"
 	"sort"
 	"strings"
+
+	"github.com/pkg/errors"
 
 	cmds "github.com/ipfs/go-ipfs/commands"
 	e "github.com/ipfs/go-ipfs/core/commands/e"
@@ -87,9 +88,13 @@ var swarmPeersCmd = &cmds.Command{
 			pid := c.RemotePeer()
 			addr := c.RemoteMultiaddr()
 
+			master, _ := n.Peerstore.Get(pid, "master")
+			m, _ := master.(bool)
+
 			ci := connInfo{
-				Addr: addr.String(),
-				Peer: pid.Pretty(),
+				Addr:   addr.String(),
+				Peer:   pid.Pretty(),
+				Master: m,
 			}
 
 			/*
@@ -146,6 +151,10 @@ var swarmPeersCmd = &cmds.Command{
 				if info.Latency != "" {
 					fmt.Fprintf(buf, " %s", info.Latency)
 				}
+
+				if info.Master {
+					fmt.Fprint(buf, "   ==> <MASTER>")
+				}
 				fmt.Fprintln(buf)
 
 				for _, s := range info.Streams {
@@ -173,6 +182,7 @@ type connInfo struct {
 	Latency string
 	Muxer   string
 	Streams []streamInfo
+	Master  bool
 }
 
 func (ci *connInfo) Less(i, j int) bool {

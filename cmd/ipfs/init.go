@@ -50,7 +50,7 @@ environment variable:
 		cmdkit.IntOption("bits", "b", "Number of bits to use in the generated RSA private key.").WithDefault(nBitsForKeypairDefault),
 		cmdkit.BoolOption("empty-repo", "e", "Don't add and pin help files to the local storage."),
 		cmdkit.StringOption("profile", "p", "Apply profile settings to config. Multiple profiles can be separated by ','"),
-
+		cmdkit.BoolOption("master", "m", "initialize as a master node."),
 		// TODO need to decide whether to expose the override as a file or a
 		// directory. That is: should we allow the user to also specify the
 		// name of the file?
@@ -81,6 +81,7 @@ environment variable:
 
 		empty, _ := req.Options["empty-repo"].(bool)
 		nBitsForKeypair, _ := req.Options["bits"].(int)
+		master, _ := req.Options["master"].(bool)
 
 		var conf *config.Config
 
@@ -106,7 +107,7 @@ environment variable:
 			profiles = strings.Split(profile, ",")
 		}
 
-		if err := doInit(os.Stdout, cctx.ConfigRoot, empty, nBitsForKeypair, profiles, conf); err != nil {
+		if err := doInit(os.Stdout, cctx.ConfigRoot, empty, nBitsForKeypair, profiles, conf, master); err != nil {
 			res.SetError(err, cmdkit.ErrNormal)
 			return
 		}
@@ -123,10 +124,10 @@ func initWithDefaults(out io.Writer, repoRoot string, profile string) error {
 		profiles = strings.Split(profile, ",")
 	}
 
-	return doInit(out, repoRoot, false, nBitsForKeypairDefault, profiles, nil)
+	return doInit(out, repoRoot, false, nBitsForKeypairDefault, profiles, nil, false)
 }
 
-func doInit(out io.Writer, repoRoot string, empty bool, nBitsForKeypair int, confProfiles []string, conf *config.Config) error {
+func doInit(out io.Writer, repoRoot string, empty bool, nBitsForKeypair int, confProfiles []string, conf *config.Config, master bool) error {
 	if _, err := fmt.Fprintf(out, "initializing IPFS node at %s\n", repoRoot); err != nil {
 		return err
 	}
@@ -146,6 +147,7 @@ func doInit(out io.Writer, repoRoot string, empty bool, nBitsForKeypair int, con
 			return err
 		}
 	}
+	conf.Master = master
 
 	for _, profile := range confProfiles {
 		transformer, ok := config.Profiles[profile]
