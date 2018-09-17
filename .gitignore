@@ -24,3 +24,4 @@ vendor
 go-ipfs-source.tar.gz
 ipfs_linux
 .idea
+.vscode

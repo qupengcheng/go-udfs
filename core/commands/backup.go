@@ -124,6 +124,9 @@ var BackupCmd = &cmds.Command{
 			}
 		}
 
+		if len(output.Failed) > 0 {
+			res.SetError(errors.New("backup failed"), cmdkit.ErrNormal)
+		}
 		res.SetOutput(output)
 	},
 	Type: BackupOutput{},

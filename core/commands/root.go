@@ -141,6 +141,7 @@ var rootSubcommands = map[string]*cmds.Command{
 	"version":   lgc.NewCommand(VersionCmd),
 	"shutdown":  lgc.NewCommand(daemonShutdownCmd),
 	"backup":    lgc.NewCommand(BackupCmd),
+	"push":      PushCmd,
 }
 
 // RootRO is the readonly version of Root
