@@ -135,7 +135,7 @@ func (dht *IpfsDHT) GetClosestMasterPeers(ctx context.Context, key string) (<-ch
 			ID:   p,
 		})
 
-		pmes, err := dht.findPeerSingle(ctx, p, peer.ID(key))
+		pmes, err := dht.findMasterPeerSingle(ctx, p, peer.ID(key))
 		if err != nil {
 			log.Debugf("error getting closer peers: %s", err)
 			return nil, err
