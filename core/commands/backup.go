@@ -22,21 +22,12 @@ import (
 	cmds "github.com/ipfs/go-ipfs/commands"
 	"github.com/ipfs/go-ipfs/core"
 	"github.com/ipfs/go-ipfs/core/commands/e"
+	"github.com/ipfs/go-ipfs/core/coreunix"
 )
 
 const ProtocolBackup protocol.ID = "/backup/0.0.1"
 const numberForBackup int = 2
 const timeoutForLookup = 1 * time.Minute
-
-type BackupResult struct {
-	ID  string
-	Msg string `json:",omitempty"`
-}
-
-type BackupOutput struct {
-	Success []*BackupResult `json:",omitempty"`
-	Failed  []*BackupResult `json:",omitempty"`
-}
 
 var BackupCmd = &cmds.Command{
 	Helptext: cmdkit.HelpText{
@@ -61,75 +52,15 @@ var BackupCmd = &cmds.Command{
 			return
 		}
 
-		// get peers for backup
-
-		toctx, cancel := context.WithTimeout(n.Context(), timeoutForLookup)
-		defer cancel()
-		closestPeers, err := n.DHT.GetClosestMasterPeers(toctx, c.KeyString())
+		output, err := backupFunc(n, c)
 		if err != nil {
-			res.SetError(errors.Wrap(err, "got closest master peers timeout"), cmdkit.ErrNormal)
+			res.SetError(err, cmdkit.ErrNormal)
 			return
 		}
 
-		peers := make(map[peer.ID]struct{}, 0)
-		for p := range closestPeers {
-			peers[p] = struct{}{}
-
-			if len(peers) >= numberForBackup {
-				cancel()
-				break
-			}
-		}
-
-		if len(peers) < numberForBackup {
-			res.SetError(errors.Errorf("Failed to find the minimum number of closest peers required: %d/%d", len(peers),
-				numberForBackup), cmdkit.ErrNormal)
-			return
-		}
-
-		log.Debug("found the peers to backup:", peers)
-		peersForBackup := peers
-
-		// 发送cid
-		results := make(chan *BackupResult, len(peersForBackup))
-		var wg sync.WaitGroup
-		for p := range peersForBackup {
-			wg.Add(1)
-			go func(id peer.ID) {
-				e := doBackup(n, id, c)
-				if e != nil {
-					results <- &BackupResult{
-						ID:  id.Pretty(),
-						Msg: e.Error(),
-					}
-				} else {
-					results <- &BackupResult{
-						ID: id.Pretty(),
-					}
-				}
-				wg.Done()
-			}(p)
-		}
-		go func() {
-			wg.Wait()
-			close(results)
-		}()
-
-		output := &BackupOutput{}
-		for r := range results {
-			if r.Msg != "" {
-				output.Failed = append(output.Failed, r)
-			} else {
-				output.Success = append(output.Success, r)
-			}
-		}
-
-		if len(output.Failed) > 0 {
-			res.SetError(errors.New("backup failed"), cmdkit.ErrNormal)
-		}
 		res.SetOutput(output)
 	},
-	Type: BackupOutput{},
+	Type: coreunix.BackupOutput{},
 	Marshalers: cmds.MarshalerMap{
 		cmds.Text: func(res cmds.Response) (io.Reader, error) {
 			v, err := unwrapOutput(res.Output())
@@ -137,7 +68,7 @@ var BackupCmd = &cmds.Command{
 				return nil, err
 			}
 
-			out, ok := v.(*BackupOutput)
+			out, ok := v.(*coreunix.BackupOutput)
 			if !ok {
 				return nil, e.TypeErr(out, v)
 			}
@@ -155,8 +86,75 @@ var BackupCmd = &cmds.Command{
 	},
 }
 
-func doBackup(n *core.IpfsNode, id peer.ID, c *cid.Cid) error {
+func backupFunc(n *core.IpfsNode, c *cid.Cid) (*coreunix.BackupOutput, error) {
+	// get peers for backup
+	toctx, cancel := context.WithTimeout(n.Context(), timeoutForLookup)
+	defer cancel()
+	closestPeers, err := n.DHT.GetClosestMasterPeers(toctx, c.KeyString())
+	if err != nil {
+		return nil, errors.Wrap(err, "got closest master peers timeout")
+	}
 
+	peers := make(map[peer.ID]struct{}, 0)
+	for p := range closestPeers {
+		peers[p] = struct{}{}
+
+		if len(peers) >= numberForBackup {
+			cancel()
+			break
+		}
+	}
+
+	if len(peers) < numberForBackup {
+		return nil, errors.Errorf("Failed to find the minimum number of closest peers required: %d/%d", len(peers),
+			numberForBackup)
+	}
+
+	log.Debug("found the peers to backup:", peers)
+	peersForBackup := peers
+
+	// 发送cid
+	results := make(chan *coreunix.BackupResult, len(peersForBackup))
+	var wg sync.WaitGroup
+	for p := range peersForBackup {
+		wg.Add(1)
+		go func(id peer.ID) {
+			e := doBackup(n, id, c)
+			if e != nil {
+				results <- &coreunix.BackupResult{
+					ID:  id.Pretty(),
+					Msg: e.Error(),
+				}
+			} else {
+				results <- &coreunix.BackupResult{
+					ID: id.Pretty(),
+				}
+			}
+			wg.Done()
+		}(p)
+	}
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	output := &coreunix.BackupOutput{}
+	for r := range results {
+		if r.Msg != "" {
+			output.Failed = append(output.Failed, r)
+		} else {
+			output.Success = append(output.Success, r)
+		}
+	}
+
+	if len(output.Failed) > 0 {
+		return nil, errors.New("backup failed")
+	}
+
+	return output, nil
+}
+
+func doBackup(n *core.IpfsNode, id peer.ID, c *cid.Cid) error {
 	s, err := n.PeerHost.NewStream(n.Context(), id, ProtocolBackup)
 	if err != nil {
 		return err

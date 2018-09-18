@@ -23,7 +23,6 @@ import (
 	bstore "gx/ipfs/QmadMhXJLHMFjpRmh85XjpmVDkEtQpNYEZNRpWRvYVLrvb/go-ipfs-blockstore"
 	cmdkit "gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit"
 	files "gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit/files"
-	"os/exec"
 
 	"github.com/ipfs/go-ipfs/core/corerepo"
 )
@@ -277,16 +276,19 @@ Push do the same thing like command add first (but with default not pin). Then d
 				return
 			}
 
+			log.Debug(("add success, ready to push"))
+
 			// got root hash
 			root, err := fileAdder.RootNode()
 			if err != nil {
+				log.Warning("cant got the root node")
 				return
 			}
-			hash := root.Cid().String()
+			c := root.Cid()
 
 			if needUnpin {
 				defer func() {
-					_, e := corerepo.Unpin(n, req.Context, []string{hash}, true)
+					_, e := corerepo.Unpin(n, req.Context, []string{c.String()}, true)
 					if e != nil {
 						if err != nil {
 							err = errors.New(err.Error() + "(unpin failed" + e.Error() + ")")
@@ -298,11 +300,14 @@ Push do the same thing like command add first (but with default not pin). Then d
 			}
 
 			// do backup
-			var op []byte
-			op, err = exec.Command("ipfs", "backup", hash).CombinedOutput()
+			backupOutput, err := backupFunc(n, c)
 			if err != nil {
-				err = errors.Wrap(err, "backup failed: "+string(op))
+				err = errors.Wrap(err, "backup failed:")
 				return
+			}
+
+			outChan <- coreunix.AddedObject{
+				Extend: backupOutput,
 			}
 		}()
 
@@ -395,6 +400,14 @@ Push do the same thing like command add first (but with default not pin). Then d
 								fmt.Fprintf(os.Stdout, "added %s %s\n", output.Hash, output.Name)
 							}
 
+						} else if output.Extend != nil {
+							for _, s := range output.Extend.Success {
+								fmt.Fprintf(os.Stdout, "backup success to %s\n", s.ID)
+							}
+							for _, f := range output.Extend.Failed {
+								fmt.Fprintf(os.Stdout, "backup failed to %s : %s\n", f.ID, f.Msg)
+							}
+							continue
 						} else {
 							if !progress {
 								continue
