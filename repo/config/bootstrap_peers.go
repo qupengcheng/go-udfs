@@ -17,7 +17,7 @@ import (
 // NOTE: This is here -- and not inside cmd/ipfs/init.go -- because of an
 // import dependency issue. TODO: move this into a config/default/ package.
 var DefaultBootstrapAddresses = []string{
-	"/ip4/192.168.12.221/tcp/4001/ipfs/QmbETUnWes7zdwZkkMGgPRtpZAYpFPxrUrCYy7fWi7JjFY",
+	"/dn4/udfs1.ulord.one/tcp/4001/ipfs/QmctwnuHwE8QzH4yxuAPtM469BiCPK5WuT9KaTK3ArwUHu",
 }
 
 // BootstrapPeer is a peer used to bootstrap the network.
