@@ -1,28 +1,41 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
-	blockservice "github.com/ipfs/go-ipfs/blockservice"
-	core "github.com/ipfs/go-ipfs/core"
+	"github.com/ipfs/go-ipfs/blockservice"
+	"github.com/ipfs/go-ipfs/core"
 	"github.com/ipfs/go-ipfs/core/coreunix"
-	filestore "github.com/ipfs/go-ipfs/filestore"
+	"github.com/ipfs/go-ipfs/filestore"
 	dag "github.com/ipfs/go-ipfs/merkledag"
 	dagtest "github.com/ipfs/go-ipfs/merkledag/test"
-	mfs "github.com/ipfs/go-ipfs/mfs"
+	"github.com/ipfs/go-ipfs/mfs"
 	ft "github.com/ipfs/go-ipfs/unixfs"
 	"github.com/pkg/errors"
 
-	cmds "gx/ipfs/QmNueRyPRQiV7PUEpnP4GgGLuK1rKQLaRW7sfPvUetYig1/go-ipfs-cmds"
+	"gx/ipfs/QmNueRyPRQiV7PUEpnP4GgGLuK1rKQLaRW7sfPvUetYig1/go-ipfs-cmds"
 	mh "gx/ipfs/QmPnFwZ2JXKnXgMw8CdBPxn7FWh6LLdjUjxV1fKHuJnkr8/go-multihash"
-	pb "gx/ipfs/QmPtj12fdwuAqj9sBSTNUxBNu8kCGNp8b3o8yUzMm5GHpq/pb"
-	offline "gx/ipfs/QmS6mo1dPpHdYsVkm27BRZDLxpKBCiJKUH8fHX15XFfMez/go-ipfs-exchange-offline"
+	"gx/ipfs/QmPtj12fdwuAqj9sBSTNUxBNu8kCGNp8b3o8yUzMm5GHpq/pb"
+	"gx/ipfs/QmS6mo1dPpHdYsVkm27BRZDLxpKBCiJKUH8fHX15XFfMez/go-ipfs-exchange-offline"
 	bstore "gx/ipfs/QmadMhXJLHMFjpRmh85XjpmVDkEtQpNYEZNRpWRvYVLrvb/go-ipfs-blockstore"
-	cmdkit "gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit"
-	files "gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit/files"
+	"gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit"
+	"gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit/files"
+
+	"path/filepath"
+
+	"encoding/csv"
+
+	"strconv"
+
+	"sync"
+
+	"os/exec"
+
+	"syscall"
 
 	"github.com/ipfs/go-ipfs/core/corerepo"
 )
@@ -82,6 +95,11 @@ Push do the same thing like command add first (but with default not pin). Then d
 		n, err := GetNode(env)
 		if err != nil {
 			res.SetError(err, cmdkit.ErrNormal)
+			return
+		}
+
+		if n.Routing == nil {
+			res.SetError(errNotOnline, cmdkit.ErrNormal)
 			return
 		}
 
@@ -287,6 +305,7 @@ Push do the same thing like command add first (but with default not pin). Then d
 			c := root.Cid()
 
 			if needUnpin {
+				PushRecorder.Write(c.String(), "1")
 				defer func() {
 					_, e := corerepo.Unpin(n, req.Context, []string{c.String()}, true)
 					if e != nil {
@@ -295,12 +314,15 @@ Push do the same thing like command add first (but with default not pin). Then d
 						} else {
 							err = errors.Wrap(e, "unpin failed")
 						}
+					} else {
+						PushRecorder.Write(c.String(), "-1")
 					}
 				}()
 			}
 
 			// do backup
 			backupOutput, err := backupFunc(n, c)
+
 			if err != nil {
 				err = errors.Wrap(err, "backup failed:")
 				return
@@ -477,4 +499,152 @@ Push do the same thing like command add first (but with default not pin). Then d
 		},
 	},
 	Type: coreunix.AddedObject{},
+}
+
+type pushRecord struct {
+	filename string
+	f        *os.File
+	once     sync.Once
+}
+
+const pushRecordFileName = "push.record"
+
+var PushRecorder = pushRecord{}
+
+func (t *pushRecord) Init(repoDir string) {
+	t.filename = filepath.Join(repoDir, pushRecordFileName)
+}
+
+func (t *pushRecord) Clear(ctx context.Context) {
+	// file already opened
+	if t.f != nil {
+		return
+	}
+
+	f, err := os.Open(t.filename)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Warningf("read push record file %s failed: %v\n", t.filename, err)
+		}
+		return
+	}
+	err = t.lock(f.Fd())
+	if err == syscall.EWOULDBLOCK {
+		f.Close()
+		return
+	}
+
+	rmFile := true
+	defer func() {
+		t.unlock(f.Fd())
+		f.Close()
+		if rmFile {
+			os.Remove(t.filename)
+		}
+	}()
+
+	// parse the bs
+	r := csv.NewReader(f)
+	r.FieldsPerRecord = 2
+
+	hashes := make(map[string]int, 0)
+	rcd, err := r.Read()
+	for err == nil && rcd != nil {
+		n, err := strconv.Atoi(rcd[1])
+		if err != nil {
+			log.Warningf("push record file %s record %s convert failed: %v\n", t.filename, rcd, err)
+			rmFile = false
+			return
+		}
+
+		if _, found := hashes[rcd[0]]; found {
+			hashes[rcd[0]] += n
+		} else {
+			hashes[rcd[0]] = n
+		}
+
+		rcd, err = r.Read()
+	}
+
+	if err != nil && err != io.EOF {
+		log.Warningf("read line from push record file %s failed: %v\n", t.filename, err)
+		rmFile = false
+		return
+	}
+
+	// handle
+	pathes := make([]string, 0, len(hashes))
+	for k, v := range hashes {
+		if v == 0 {
+			continue
+		}
+
+		if v < 0 {
+			log.Warningf("push record file %s record %s value = %d\n", t.filename, k, v)
+			rmFile = false
+			continue
+		}
+
+		pathes = append(pathes, k)
+	}
+
+	log.Debug("hashes need to unpined: ", pathes)
+	if len(pathes) > 0 {
+		args := []string{"pin", "rm"}
+		args = append(args, pathes...)
+		bs, err := exec.CommandContext(ctx, "ipfs", args...).CombinedOutput()
+		if err != nil && !strings.Contains(err.Error(), "exit status 1") {
+			log.Warning("do unpin failed:", err, string(bs))
+			rmFile = false
+			return
+		}
+	}
+}
+
+func (t *pushRecord) Write(k, v string) {
+	t.once.Do(func() {
+		if t.filename == "" {
+			log.Warning("please call init file of pushRecord before write")
+			return
+		}
+
+		var err error
+		t.f, err = os.OpenFile(t.filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Warningf("open file %s failed: %v\n", t.filename, err)
+			return
+		}
+
+		err = t.lock(t.f.Fd())
+		if err != nil {
+			log.Warning("locak file %s failed: %v\n", t.filename, err)
+			t.f.Close()
+			return
+		}
+	})
+
+	if t.f == nil {
+		log.Warning("record file not opened")
+		return
+	}
+
+	w := csv.NewWriter(t.f)
+	err := w.Write([]string{k, v})
+	if err != nil {
+		log.Warningf("record for %s=%s failed: %v\n ", k, v, err)
+		return
+	}
+	w.Flush()
+
+	log.Debug("write record:", k, v)
+}
+
+//加锁
+func (t *pushRecord) lock(fd uintptr) error {
+	return syscall.Flock(int(fd), syscall.LOCK_EX|syscall.LOCK_NB)
+}
+
+//释放锁
+func (t *pushRecord) unlock(fd uintptr) error {
+	return syscall.Flock(int(fd), syscall.LOCK_UN)
 }

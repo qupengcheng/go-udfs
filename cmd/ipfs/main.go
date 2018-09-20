@@ -99,6 +99,9 @@ func mainRet() int {
 		}
 		log.Debugf("config path is %s", repoPath)
 
+		corecmds.PushRecorder.Init(repoPath)
+		corecmds.PushRecorder.Clear(ctx)
+
 		// this sets up the function that will initialize the node
 		// this is so that we can construct the node lazily.
 		return &oldcmds.Context{
