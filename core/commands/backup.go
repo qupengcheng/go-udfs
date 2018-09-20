@@ -45,6 +45,11 @@ var BackupCmd = &cmds.Command{
 			return
 		}
 
+		if n.Routing == nil {
+			res.SetError(errNotOnline, cmdkit.ErrNormal)
+			return
+		}
+
 		// get cid
 		c, err := cid.Decode(req.Arguments()[0])
 		if err != nil {
