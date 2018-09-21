@@ -504,6 +504,7 @@ Push do the same thing like command add first (but with default not pin). Then d
 type pushRecord struct {
 	filename string
 	f        *os.File
+	w        *csv.Writer
 	once     sync.Once
 }
 
@@ -513,6 +514,55 @@ var PushRecorder = pushRecord{}
 
 func (t *pushRecord) Init(repoDir string) {
 	t.filename = filepath.Join(repoDir, pushRecordFileName)
+}
+
+func (t *pushRecord) Write(k, v string) {
+	t.once.Do(func() {
+		if t.filename == "" {
+			log.Warning("please call init file of pushRecord before write")
+			return
+		}
+
+		var err error
+		t.f, err = os.OpenFile(t.filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Warningf("open file %s failed: %v\n", t.filename, err)
+			return
+		}
+
+		err = t.lock(t.f.Fd())
+		if err != nil {
+			log.Warning("locak file %s failed: %v\n", t.filename, err)
+			t.f.Close()
+			return
+		}
+
+		t.w = csv.NewWriter(t.f)
+	})
+
+	if t.w == nil {
+		log.Warning("record file not opened")
+		return
+	}
+
+	err := t.w.Write([]string{k, v})
+	if err != nil {
+		log.Warningf("record for %s=%s failed: %v\n ", k, v, err)
+		return
+	}
+	t.w.Flush()
+
+	log.Debug("write record:", k, v)
+}
+
+//加锁
+func (t *pushRecord) lock(fd uintptr) error {
+	return syscall.Flock(int(fd), syscall.LOCK_EX|syscall.LOCK_NB)
+}
+
+//释放锁
+func (t *pushRecord) unlock(fd uintptr) error {
+	return syscall.Flock(int(fd), syscall.LOCK_UN)
 }
 
 func (t *pushRecord) Clear(ctx context.Context) {
@@ -599,52 +649,4 @@ func (t *pushRecord) Clear(ctx context.Context) {
 			return
 		}
 	}
-}
-
-func (t *pushRecord) Write(k, v string) {
-	t.once.Do(func() {
-		if t.filename == "" {
-			log.Warning("please call init file of pushRecord before write")
-			return
-		}
-
-		var err error
-		t.f, err = os.OpenFile(t.filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-		if err != nil {
-			log.Warningf("open file %s failed: %v\n", t.filename, err)
-			return
-		}
-
-		err = t.lock(t.f.Fd())
-		if err != nil {
-			log.Warning("locak file %s failed: %v\n", t.filename, err)
-			t.f.Close()
-			return
-		}
-	})
-
-	if t.f == nil {
-		log.Warning("record file not opened")
-		return
-	}
-
-	w := csv.NewWriter(t.f)
-	err := w.Write([]string{k, v})
-	if err != nil {
-		log.Warningf("record for %s=%s failed: %v\n ", k, v, err)
-		return
-	}
-	w.Flush()
-
-	log.Debug("write record:", k, v)
-}
-
-//加锁
-func (t *pushRecord) lock(fd uintptr) error {
-	return syscall.Flock(int(fd), syscall.LOCK_EX|syscall.LOCK_NB)
-}
-
-//释放锁
-func (t *pushRecord) unlock(fd uintptr) error {
-	return syscall.Flock(int(fd), syscall.LOCK_UN)
 }
