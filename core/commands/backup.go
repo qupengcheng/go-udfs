@@ -9,7 +9,6 @@ import (
 	"gx/ipfs/QmZNkThpqfVXs9GNbexPrfBbXSLNYeKrE7jwFM2oqHbyqN/go-libp2p-protocol"
 	"gx/ipfs/QmdVrMn1LhB4ybb8hMVaMLXnA8XRSewMnK6YqXKXoTcRvN/go-libp2p-peer"
 	"io"
-	"os/exec"
 	"sync"
 	"time"
 
@@ -22,6 +21,7 @@ import (
 	cmds "github.com/ipfs/go-ipfs/commands"
 	"github.com/ipfs/go-ipfs/core"
 	"github.com/ipfs/go-ipfs/core/commands/e"
+	corerepo "github.com/ipfs/go-ipfs/core/corerepo"
 	"github.com/ipfs/go-ipfs/core/coreunix"
 )
 
@@ -232,12 +232,14 @@ func SetupBackupHandler(node *core.IpfsNode) {
 		log.Debug("backup-handler cid=", c.String())
 
 		// do pin add
-		co, err := exec.Command("ipfs", "pin", "add", c.String()).CombinedOutput()
+		defer node.Blockstore.PinLock().Unlock()
+
+		_, err = corerepo.Pin(node, node.Context(), []string{c.String()}, true)
 		if err != nil {
 			errRet = errors.Wrapf(err, "backup-handler run pin command for %s failed", c.String())
 			return
 		}
 
-		log.Debug("backup-handler run pin command result: ", string(co))
+		log.Debugf("backup-handler run pin add %s success\n", c.String())
 	})
 }
