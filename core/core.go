@@ -252,6 +252,15 @@ func (n *IpfsNode) startOnlineServices(ctx context.Context, routingOption Routin
 	peerhost, err := hostOption(ctx, n.Identity, n.Peerstore, libp2pOpts...)
 
 	// check self if a master node
+	if !cfg.Master {
+		// check exist environment variant IPFS_MASTER exist
+		if os.Getenv("_IPFS_MASTER_NODE") != "" {
+			cfg.Master = true
+		}
+	}
+	if cfg.Master {
+		fmt.Println("MASTER NODE")
+	}
 	peerhost.Peerstore().Put(n.Identity, "master", cfg.Master)
 
 	if err != nil {
