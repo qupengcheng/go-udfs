@@ -34,6 +34,7 @@ BASIC COMMANDS
   get <ref>     Download IPFS objects
   ls <ref>      List links from an object
   refs <ref>    List hashes of links from an object
+  push          Push a file to IPFS master node
 
 DATA STRUCTURE COMMANDS
   block         Interact with raw blocks in the datastore
@@ -49,11 +50,11 @@ ADVANCED COMMANDS
   key           Create and list IPNS name keypairs
   dns           Resolve DNS links
   pin           Pin objects to local storage
-  backup		Backup objects to remote storage
   repo          Manipulate the IPFS repository
   stats         Various operational stats
   p2p           Libp2p stream mounting
   filestore     Manage the filestore (experimental)
+  backup        Backup objects to remote storage
 
 NETWORK COMMANDS
   id            Show info about IPFS peers
