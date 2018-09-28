@@ -210,7 +210,7 @@ collected if needed. (By default, recursively. Use -r=false for direct pins.)
 
 		clear, _, err := req.Option("clear").Bool()
 		if clear {
-			err = corerepo.Remove(n, req.Context(), removed, recursive)
+			err = corerepo.Remove(n, req.Context(), removed, recursive, false)
 			if err != nil {
 				res.SetError(err, cmdkit.ErrNormal)
 				return

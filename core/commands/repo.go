@@ -481,7 +481,7 @@ var repoRmCmd = &oldcmds.Command{
 			cids[i] = k
 		}
 
-		gcOutChan := corerepo.RemoveAsync(n, req.Context(), cids, recursive)
+		gcOutChan := corerepo.RemoveAsync(n, req.Context(), cids, recursive, true)
 
 		outChan := make(chan interface{})
 		res.SetOutput(outChan)

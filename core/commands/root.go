@@ -35,6 +35,7 @@ BASIC COMMANDS
   ls <ref>      List links from an object
   refs <ref>    List hashes of links from an object
   push          Push a file to IPFS master node
+  localrm       Remove object from local pin and repo
 
 DATA STRUCTURE COMMANDS
   block         Interact with raw blocks in the datastore
@@ -143,6 +144,7 @@ var rootSubcommands = map[string]*cmds.Command{
 	"shutdown":  lgc.NewCommand(daemonShutdownCmd),
 	"backup":    lgc.NewCommand(BackupCmd),
 	"push":      PushCmd,
+	"localrm":   lgc.NewCommand(LocalrmCmd),
 }
 
 // RootRO is the readonly version of Root

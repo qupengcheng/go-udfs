@@ -3,9 +3,10 @@ package gc
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/pkg/errors"
 
 	bserv "github.com/ipfs/go-ipfs/blockservice"
 	dag "github.com/ipfs/go-ipfs/merkledag"
@@ -253,8 +254,9 @@ func (e *CannotDeleteBlockError) Error() string {
 	return fmt.Sprintf("could not remove %s: %s", e.Key, e.Err)
 }
 
-// Remove remove all block by param cids, and if recursive param is true, it will remove their descendants too.
-func Remove(ctx context.Context, bs bstore.GCBlockstore, dstor dstore.Datastore, pn pin.Pinner, cids []*cid.Cid, recursive bool) <-chan Result {
+// Remove remove all block by param cids, and if recursive param is true,
+// it will remove their descendants too. when checkPined is true, no pined block will be removed.
+func Remove(ctx context.Context, bs bstore.GCBlockstore, dstor dstore.Datastore, pn pin.Pinner, cids []*cid.Cid, recursive bool, checkPined bool) <-chan Result {
 
 	elock := log.EventBegin(ctx, "GC.lockWait")
 	unlocker := bs.GCLock()
@@ -272,61 +274,76 @@ func Remove(ctx context.Context, bs bstore.GCBlockstore, dstor dstore.Datastore,
 		defer unlocker.Unlock()
 		defer elock.Done()
 
-		errors := false
-		gcs := cid.NewSet()
-		bestEffortGetLinks := func(ctx context.Context, cid *cid.Cid) ([]*ipld.Link, error) {
-			links, err := ipld.GetLinks(ctx, ds, cid)
-			if err != nil && err != ipld.ErrNotFound {
-				errors = true
-				output <- Result{Error: &CannotFetchLinksError{cid, err}}
+		failed := false
+		needRemoved := cids
+		if recursive {
+			gcs := cid.NewSet()
+			cidsGetLinks := func(ctx context.Context, cid *cid.Cid) ([]*ipld.Link, error) {
+				links, err := ipld.GetLinks(ctx, ds, cid)
+				if err != nil && err != ipld.ErrNotFound {
+					failed = true
+					output <- Result{Error: &CannotFetchLinksError{cid, err}}
+				}
+				return links, nil
 			}
-			return links, nil
-		}
-		err := Descendants(ctx, bestEffortGetLinks, gcs, cids)
-		if err != nil {
-			errors = true
-			output <- Result{Error: err}
-			return
+			err := Descendants(ctx, cidsGetLinks, gcs, cids)
+			if err != nil {
+				failed = true
+				output <- Result{Error: err}
+				return
+			}
+			needRemoved = gcs.Keys()
 		}
 
 		emark.Append(logging.LoggableMap{
-			"blackSetSize": fmt.Sprintf("%d", gcs.Len()),
+			"blackSetSize": fmt.Sprintf("%d", len(needRemoved)),
 		})
 		emark.Done()
 		esweep := log.EventBegin(ctx, "GC.sweep")
 
 		var removed uint64
-
-		gcs.ForEach(func(c *cid.Cid) error {
+		for _, c := range needRemoved {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				output <- Result{Error: ctx.Err()}
+				return
 
 			default:
+				if checkPined {
+					_, pined, err := pn.IsPinned(c)
+					if err != nil {
+						output <- Result{Error: &CannotDeleteBlockError{c, errors.Wrap(err, "check is pined failed")}}
+						continue
+					}
+
+					if pined {
+						continue
+					}
+				}
+
 				err := bs.DeleteBlock(c)
 				removed++
 				if err != nil {
-					errors = true
+					failed = true
 					output <- Result{Error: &CannotDeleteBlockError{c, err}}
 					//log.Errorf("Error removing key from blockstore: %s", err)
 					// continue as error is non-fatal
-					return nil
+					continue
 				}
 				select {
 				case output <- Result{KeyRemoved: c}:
 				case <-ctx.Done():
-					return ctx.Err()
+					output <- Result{Error: ctx.Err()}
+					return
 				}
 			}
-
-			return nil
-		})
+		}
 
 		esweep.Append(logging.LoggableMap{
 			"whiteSetSize": fmt.Sprintf("%d", removed),
 		})
 		esweep.Done()
-		if errors {
+		if failed {
 			output <- Result{Error: ErrCannotDeleteSomeBlocks}
 		}
 
@@ -336,7 +353,7 @@ func Remove(ctx context.Context, bs bstore.GCBlockstore, dstor dstore.Datastore,
 			return
 		}
 
-		err = gds.CollectGarbage()
+		err := gds.CollectGarbage()
 		if err != nil {
 			output <- Result{Error: err}
 			return
