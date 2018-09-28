@@ -204,7 +204,6 @@ func ColoredSet(ctx context.Context, pn pin.Pinner, ng ipld.NodeGetter, bestEffo
 	for _, k := range pn.DirectKeys() {
 		gcs.Add(k)
 	}
-
 	err = Descendants(ctx, getLinks, gcs, pn.InternalPins())
 	if err != nil {
 		errors = true
@@ -252,4 +251,98 @@ type CannotDeleteBlockError struct {
 // useful message.
 func (e *CannotDeleteBlockError) Error() string {
 	return fmt.Sprintf("could not remove %s: %s", e.Key, e.Err)
+}
+
+// Remove remove all block by param cids, and if recursive param is true, it will remove their descendants too.
+func Remove(ctx context.Context, bs bstore.GCBlockstore, dstor dstore.Datastore, pn pin.Pinner, cids []*cid.Cid, recursive bool) <-chan Result {
+
+	elock := log.EventBegin(ctx, "GC.lockWait")
+	unlocker := bs.GCLock()
+	elock.Done()
+	elock = log.EventBegin(ctx, "GC.locked")
+	emark := log.EventBegin(ctx, "GC.mark")
+
+	bsrv := bserv.New(bs, offline.Exchange(bs))
+	ds := dag.NewDAGService(bsrv)
+
+	output := make(chan Result, 128)
+
+	go func() {
+		defer close(output)
+		defer unlocker.Unlock()
+		defer elock.Done()
+
+		errors := false
+		gcs := cid.NewSet()
+		bestEffortGetLinks := func(ctx context.Context, cid *cid.Cid) ([]*ipld.Link, error) {
+			links, err := ipld.GetLinks(ctx, ds, cid)
+			if err != nil && err != ipld.ErrNotFound {
+				errors = true
+				output <- Result{Error: &CannotFetchLinksError{cid, err}}
+			}
+			return links, nil
+		}
+		err := Descendants(ctx, bestEffortGetLinks, gcs, cids)
+		if err != nil {
+			errors = true
+			output <- Result{Error: err}
+			return
+		}
+
+		emark.Append(logging.LoggableMap{
+			"blackSetSize": fmt.Sprintf("%d", gcs.Len()),
+		})
+		emark.Done()
+		esweep := log.EventBegin(ctx, "GC.sweep")
+
+		var removed uint64
+
+		gcs.ForEach(func(c *cid.Cid) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+
+			default:
+				err := bs.DeleteBlock(c)
+				removed++
+				if err != nil {
+					errors = true
+					output <- Result{Error: &CannotDeleteBlockError{c, err}}
+					//log.Errorf("Error removing key from blockstore: %s", err)
+					// continue as error is non-fatal
+					return nil
+				}
+				select {
+				case output <- Result{KeyRemoved: c}:
+					fmt.Println("delete block ", c.String())
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+
+			return nil
+		})
+
+		esweep.Append(logging.LoggableMap{
+			"whiteSetSize": fmt.Sprintf("%d", removed),
+		})
+		esweep.Done()
+		if errors {
+			output <- Result{Error: ErrCannotDeleteSomeBlocks}
+		}
+
+		defer log.EventBegin(ctx, "GC.datastore").Done()
+		gds, ok := dstor.(dstore.GCDatastore)
+		if !ok {
+			return
+		}
+
+		err = gds.CollectGarbage()
+		if err != nil {
+			output <- Result{Error: err}
+			return
+		}
+	}()
+
+	return output
 }

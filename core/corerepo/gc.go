@@ -224,3 +224,16 @@ func (gc *GC) maybeGC(ctx context.Context, offset uint64) error {
 	}
 	return nil
 }
+
+func Remove(n *core.IpfsNode, ctx context.Context, cids []*cid.Cid, recursive bool) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel() // in case error occurs during operation
+
+	rmed := gc.Remove(ctx, n.Blockstore, n.Repo.Datastore(), n.Pinning, cids, recursive)
+
+	return CollectResult(ctx, rmed, nil)
+}
+
+func RemoveAsync(n *core.IpfsNode, ctx context.Context, cids []*cid.Cid, recursive bool) <-chan gc.Result {
+	return gc.Remove(ctx, n.Blockstore, n.Repo.Datastore(), n.Pinning, cids, recursive)
+}

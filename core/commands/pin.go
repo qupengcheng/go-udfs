@@ -185,6 +185,7 @@ collected if needed. (By default, recursively. Use -r=false for direct pins.)
 	},
 	Options: []cmdkit.Option{
 		cmdkit.BoolOption("recursive", "r", "Recursively unpin the object linked to by the specified object(s).").WithDefault(true),
+		cmdkit.BoolOption("clear", "", "Clear the cache from repo.").WithDefault(false),
 	},
 	Type: PinOutput{},
 	Run: func(req cmds.Request, res cmds.Response) {
@@ -205,6 +206,15 @@ collected if needed. (By default, recursively. Use -r=false for direct pins.)
 		if err != nil {
 			res.SetError(err, cmdkit.ErrNormal)
 			return
+		}
+
+		clear, _, err := req.Option("clear").Bool()
+		if clear {
+			err = corerepo.Remove(n, req.Context(), removed, recursive)
+			if err != nil {
+				res.SetError(err, cmdkit.ErrNormal)
+				return
+			}
 		}
 
 		res.SetOutput(&PinOutput{cidsToStrings(removed)})
