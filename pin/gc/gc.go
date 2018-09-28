@@ -314,7 +314,6 @@ func Remove(ctx context.Context, bs bstore.GCBlockstore, dstor dstore.Datastore,
 				}
 				select {
 				case output <- Result{KeyRemoved: c}:
-					fmt.Println("delete block ", c.String())
 				case <-ctx.Done():
 					return ctx.Err()
 				}
