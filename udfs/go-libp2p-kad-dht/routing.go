@@ -20,7 +20,8 @@ import (
 	logging "gx/ipfs/QmcVVHfdyv15GVPk7NrxdWjh2hLVccXnoD8j2tyQShiXJb/go-log"
 	peer "gx/ipfs/QmdVrMn1LhB4ybb8hMVaMLXnA8XRSewMnK6YqXKXoTcRvN/go-libp2p-peer"
 	pset "gx/ipfs/QmdVrMn1LhB4ybb8hMVaMLXnA8XRSewMnK6YqXKXoTcRvN/go-libp2p-peer/peerset"
-	kb "gx/ipfs/QmesQqwonP618R7cJZoFfA4ioYhhMKnDmtUxcAvvxEEGnw/go-libp2p-kbucket"
+
+	kb "github.com/ipfs/go-ipfs/udfs/go-libp2p-kbucket"
 
 	pb "github.com/ipfs/go-ipfs/udfs/go-libp2p-kad-dht/pb"
 )

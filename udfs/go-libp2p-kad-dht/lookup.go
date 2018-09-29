@@ -9,7 +9,8 @@ import (
 	notif "gx/ipfs/QmZ383TySJVeZWzGnWui6pRcKyYZk9VkKTuW7tmKRWk5au/go-libp2p-routing/notifications"
 	logging "gx/ipfs/QmcVVHfdyv15GVPk7NrxdWjh2hLVccXnoD8j2tyQShiXJb/go-log"
 	peer "gx/ipfs/QmdVrMn1LhB4ybb8hMVaMLXnA8XRSewMnK6YqXKXoTcRvN/go-libp2p-peer"
-	kb "gx/ipfs/QmesQqwonP618R7cJZoFfA4ioYhhMKnDmtUxcAvvxEEGnw/go-libp2p-kbucket"
+
+	kb "github.com/ipfs/go-ipfs/udfs/go-libp2p-kbucket"
 
 	pb "github.com/ipfs/go-ipfs/udfs/go-libp2p-kad-dht/pb"
 )

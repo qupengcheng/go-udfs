@@ -25,7 +25,8 @@ import (
 	travisci "gx/ipfs/QmcW4FGAt24fdK1jBgWQn3yP4R9ZLyWQqjozv9QK7epRhL/go-testutil/ci/travis"
 	peer "gx/ipfs/QmdVrMn1LhB4ybb8hMVaMLXnA8XRSewMnK6YqXKXoTcRvN/go-libp2p-peer"
 	swarmt "gx/ipfs/QmemVjhp1UuWPQqrWSvPcaqH3QJRMjMqNm4T2RULMkDDQe/go-libp2p-swarm/testing"
-	kb "gx/ipfs/QmesQqwonP618R7cJZoFfA4ioYhhMKnDmtUxcAvvxEEGnw/go-libp2p-kbucket"
+
+	kb "github.com/ipfs/go-ipfs/udfs/go-libp2p-kbucket"
 
 	bhost "github.com/ipfs/go-ipfs/udfs/go-libp2p/p2p/host/basic"
 )
