@@ -61,7 +61,7 @@ type AddedObject struct {
 	Hash   string        `json:",omitempty"`
 	Bytes  int64         `json:",omitempty"`
 	Size   string        `json:",omitempty"`
-	Extend *BackupOutput `json:",omitempty""`
+	Extend *BackupOutput `json:",omitempty"`
 }
 
 // NewAdder Returns a new Adder used for a file add operation.
