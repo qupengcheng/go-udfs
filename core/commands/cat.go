@@ -11,6 +11,7 @@ import (
 
 	cmds "gx/ipfs/QmNueRyPRQiV7PUEpnP4GgGLuK1rKQLaRW7sfPvUetYig1/go-ipfs-cmds"
 	"gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit"
+	"time"
 )
 
 const progressBarMinSize = 1024 * 1024 * 8 // show progress bar for outputs > 8MiB
@@ -140,7 +141,8 @@ func cat(ctx context.Context, node *core.IpfsNode, paths []string, offset int64,
 		return nil, 0, nil
 	}
 	for _, fpath := range paths {
-		read, err := coreunix.Cat(ctx, node, fpath)
+		tmCtx, _ := context.WithTimeout(ctx, 2*time.Minute)
+		read, err := coreunix.Cat(tmCtx, node, fpath)
 		if err != nil {
 			return nil, 0, err
 		}
