@@ -403,9 +403,18 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	if !offline {
 		commands.SetupBackupHandler(node)
 		fmt.Println("backup function started")
+
+		err = commands.RunBlacklistRefreshService(req.Context, node)
+		if err != nil {
+			re.SetError(err, cmdkit.ErrNormal)
+			return
+		}
+		fmt.Println("run blacklist refresh service success")
 	}
 
 	fmt.Printf("Daemon is ready\n")
+
+	// run blacklist refresh service
 
 	// collect long-running errors and block for shutdown
 	// TODO(cryptix): our fuse currently doesnt follow this pattern for graceful shutdown
