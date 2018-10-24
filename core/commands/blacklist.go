@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"gx/ipfs/QmYVNvtQkeZ6AKSwDrjQTs432QtL6umrrK41EBq3cu7iSP/go-cid"
+	format "gx/ipfs/QmZtNq8dArGfnpCZfx2pUNY7UcjGhVp5qqwQ4hH6mpTMRQ/go-ipld-format"
 
 	"gx/ipfs/QmNueRyPRQiV7PUEpnP4GgGLuK1rKQLaRW7sfPvUetYig1/go-ipfs-cmds"
 	"gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit"
@@ -16,14 +17,47 @@ import (
 
 	"fmt"
 
-	core "github.com/ipfs/go-ipfs/core"
+	"sort"
+
+	"io/ioutil"
+
+	"os"
+
+	"path/filepath"
+
+	"github.com/ipfs/go-ipfs/core"
 	"github.com/ipfs/go-ipfs/core/corerepo"
 	"github.com/ipfs/go-ipfs/core/coreunix"
-	path "github.com/ipfs/go-ipfs/path"
+	"github.com/ipfs/go-ipfs/merkledag"
+	"github.com/ipfs/go-ipfs/path"
 	"github.com/pkg/errors"
 )
 
-const blacklistFile = "/ipns/QmbETUnWes7zdwZkkMGgPRtpZAYpFPxrUrCYy7fWi7JjFY/blacklist"
+const (
+	blacklistDir     = "/ipns/QmbETUnWes7zdwZkkMGgPRtpZAYpFPxrUrCYy7fWi7JjFY/blacklistdir"
+	timeFormatLayout = "2006-01-02 15:04:05 -0700 MST"
+)
+
+var (
+	lastHandleTimeFile = filepath.Join(os.TempDir(), "blacklist_last_handle_time")
+	lastHandleTime     = time.Unix(0, 0)
+	period             = 24 * time.Hour
+)
+
+func init() {
+	t, err := ioutil.ReadFile(lastHandleTimeFile)
+	if err != nil && !os.IsNotExist(err) {
+		log.Error("read last blacklist name file failed:", err.Error())
+	} else if len(t) > 0 {
+		last, err := time.Parse(timeFormatLayout, string(t))
+		if err != nil {
+			log.Error("parse blacklist last handle time failed:", err.Error())
+		} else {
+			lastHandleTime = last
+			fmt.Println("blacklist last handle time:", string(t))
+		}
+	}
+}
 
 var BlacklistCmd = &cmds.Command{
 	Helptext: cmdkit.HelpText{
@@ -56,8 +90,79 @@ var BlacklistCmd = &cmds.Command{
 	},
 }
 
+func getBlacklistFiles(ctx context.Context, n *core.IpfsNode) ([]*format.Link, error) {
+	node, err := core.Resolve(ctx, n.Namesys, n.Resolver, blacklistDir)
+	if err != nil {
+		return nil, errors.Errorf("read blacklist directory failed: %v\n", err.Error())
+	}
+
+	if len(node.Links()) == 0 {
+		return nil, nil
+	}
+
+	links := node.Links()
+	sort.Stable(merkledag.LinkSlice(links))
+
+	deadline := int64(0)
+	if lastHandleTime.Unix() > 0 {
+		deadline = lastHandleTime.Unix() - int64(period.Seconds())
+	}
+	deadlineStr := fmt.Sprintf("%10d", deadline)
+
+	for i, link := range links {
+		if link.Name <= deadlineStr {
+			continue
+		}
+
+		return links[i:], nil
+	}
+	return nil, nil
+}
+
 func refreshBlacklist(ctx context.Context, n *core.IpfsNode, minFailed int) error {
-	dagReader, err := coreunix.Cat(ctx, n, blacklistFile)
+	links, err := getBlacklistFiles(ctx, n)
+	if err != nil {
+		return errors.Wrap(err, "get blacklist files failed")
+	}
+
+	if len(links) == 0 {
+		log.Debug("no new blacklist file need to handle, last blacklist handle time :", lastHandleTime)
+		return nil
+	}
+
+	newBlacklistHandleTime := lastHandleTime
+	defer func() {
+		if newBlacklistHandleTime == lastHandleTime {
+			return
+		}
+		lastHandleTime = newBlacklistHandleTime
+
+		newTimeStr := newBlacklistHandleTime.Format(timeFormatLayout)
+
+		// save new blacklist name to file
+		e := ioutil.WriteFile(lastHandleTimeFile, []byte(newTimeStr), 0644)
+		if e != nil {
+			log.Warningf("save new blacklist name %s to file faied: %v\n", newTimeStr, e.Error())
+		}
+
+	}()
+
+	for _, link := range links {
+		log.Debug("handle blacklist file ", link.Name)
+		err = handleBlacklistFile(ctx, n, minFailed, link.Cid)
+		if err != nil {
+			return errors.Wrapf(err, "refresh blacklist file %s failed", link.Name)
+		}
+
+		newBlacklistHandleTime = time.Now()
+	}
+
+	return nil
+}
+
+func handleBlacklistFile(ctx context.Context, n *core.IpfsNode, minFailed int, c *cid.Cid) error {
+
+	dagReader, err := coreunix.Cat(ctx, n, path.FromCid(c).String())
 	if err != nil {
 		return errors.Errorf("read blacklist failed: %v\n", err.Error())
 	}
@@ -72,7 +177,6 @@ func refreshBlacklist(ctx context.Context, n *core.IpfsNode, minFailed int) erro
 
 		if err != nil {
 			return errors.Errorf("read record from blacklist failed: %v\n", err.Error())
-
 		}
 		log.Debug("blacklist record:", record)
 
@@ -95,15 +199,27 @@ func RunBlacklistRefreshService(ctx context.Context, n *core.IpfsNode) error {
 		return errors.Wrap(err, "got config failed")
 	}
 
-	d := 10 * time.Second
+	dur := 10 * time.Second
 	if conf.Blacklist.Interval != "" {
-		d, err = time.ParseDuration(conf.Blacklist.Interval)
+		d, err := time.ParseDuration(conf.Blacklist.Interval)
 		if err != nil {
 			return errors.Wrap(err, "parse config.Blacklist.Interval failed")
 		}
+		dur = d
+	}
+	if conf.Blacklist.Period != "" {
+		p, err := time.ParseDuration(conf.Blacklist.Period)
+		if err != nil {
+			return errors.Wrap(err, "parse config.Blacklist.Period failed")
+		}
+
+		period = p
 	}
 
-	tm := time.NewTimer(d)
+	log.Debug("current blacklist file handle interval = ", dur)
+	log.Debug("current blacklist file invalid period = ", period)
+
+	tm := time.NewTimer(dur)
 
 	go func() {
 		defer tm.Stop()
@@ -113,7 +229,7 @@ func RunBlacklistRefreshService(ctx context.Context, n *core.IpfsNode) error {
 			case <-tm.C:
 				refreshBlacklist(ctx, n, -1)
 
-				tm.Reset(d)
+				tm.Reset(dur)
 
 			case <-ctx.Done():
 				return
