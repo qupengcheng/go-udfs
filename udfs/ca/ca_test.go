@@ -5,28 +5,27 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-		"testing"
 	"net"
-					)
+	"testing"
+)
 
-var(
-	txid = "829f9b963be709e8b138385fedb876990f892b99ca641401e8a88df531735ca7"
+var (
+	txid   = "829f9b963be709e8b138385fedb876990f892b99ca641401e8a88df531735ca7"
 	voutid = uint32(1)
 
-	period = int64(1543386972)
+	period     = int64(1543386972)
 	licversion = int32(1)
 
 	pubkeyStr = "0427989b89ebc4c8596a82830a877b5edbde0739ea8df6e7c8bbbdf3bf0857f555bb739f3e9ce9951a0f34be4ff4d7e771b544401139de4dcca4809a0aac4c6ed5"
-	hashStr = "6b1b03d59c397fa77967a10e33259c58db295c1f8b66ba568a6c13ea0cc8ea21"
+	hashStr   = "6b1b03d59c397fa77967a10e33259c58db295c1f8b66ba568a6c13ea0cc8ea21"
 
 	signStr = "IEC1TEc+iLcJ2LsXFZ2Xdx7E8VmXuoW98unHqsh2uNXmBmMpI7Lm+/v1B7hrczJ0hO3pMh5yTgk/6aS7L/VnCGE="
 
 	ucenterPubkeyStr = "03e947099921ee170da47a7acf48143c624d33950af362fc39a734b1b3188ec1e3"
 )
 
-
 func Test_MakeBTCHash(t *testing.T) {
-	if MakeBTCHash(txid, voutid, pubkeyStr, period, licversion, ) !=hashStr {
+	if MakeBTCHash(txid, voutid, pubkeyStr, period, licversion) != hashStr {
 		t.Failed()
 	}
 }
@@ -197,7 +196,6 @@ func Test_RequestSignature(t *testing.T) {
 	}
 }
 
-
 func Test_VerifySignature(t *testing.T) {
 	if !VerifySignature(hashStr, signStr, ucenterPubkeyStr) {
 		t.Failed()
@@ -244,7 +242,6 @@ func Test_Raw(t *testing.T) {
 
 	// cd77355ebc70f9d1b674a4d3dacfb09464dcfbf2b3055ab97ee8a7d28e447784
 }
-
 
 func Test_MakePrivateAddr(t *testing.T) {
 	fmt.Println(MakePrivateAddr())
