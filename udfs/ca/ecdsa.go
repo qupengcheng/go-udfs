@@ -7,7 +7,7 @@ import (
 	"math/big"
 	"sync/atomic"
 
-	"github.com/ipfs/go-ipfs/thirdparty/ca/secp256k1"
+	"github.com/ipfs/go-ipfs/udfs/ca/secp256k1"
 )
 
 var (
