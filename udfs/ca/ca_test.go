@@ -5,13 +5,12 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"net"
 	"testing"
 )
 
 var (
 	txid   = "829f9b963be709e8b138385fedb876990f892b99ca641401e8a88df531735ca7"
-	voutid = uint32(1)
+	voutid = int32(1)
 
 	period     = int64(1543386972)
 	licversion = int32(1)
@@ -25,179 +24,33 @@ var (
 )
 
 func Test_MakeBTCHash(t *testing.T) {
-	if MakeBTCHash(txid, voutid, pubkeyStr, period, licversion) != hashStr {
+	if MakeNodeInfoHash(txid, voutid, pubkeyStr, period, licversion) != hashStr {
 		t.Failed()
 	}
 }
 
 func Test_RequestSignature(t *testing.T) {
-	type RequestMsg struct {
-		size      int32
-		version   int32
-		timestamp int64
-		questtype int32
-		txid      string
-		vountid   uint32
+	p, lic, e := RequestLicense(txid, voutid)
+	if e != nil {
+		t.Fatal(e)
 	}
 
-	fmt.Println()
-
-	msg := RequestMsg{
-		size:      85,
-		version:   111,
-		timestamp: 0,
-		questtype: 1,
-		txid:      txid,
-		vountid:   voutid,
-	}
-
-	b := bytes.NewBuffer(nil)
-	binary.Write(b, binary.BigEndian, msg.size)
-	binary.Write(b, binary.LittleEndian, msg.version)
-	binary.Write(b, binary.LittleEndian, msg.timestamp)
-	binary.Write(b, binary.LittleEndian, msg.questtype)
-	WriteVlen(b, uint64(len(msg.txid)))
-	b.Write([]byte(msg.txid))
-	binary.Write(b, binary.LittleEndian, msg.vountid)
-
-	if b.Len()-4 != int(msg.size) {
-		t.Fatal("error length")
-	}
-
-	conn, err := net.Dial("tcp", "132.232.98.139:5009")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-
-	_, err = conn.Write(b.Bytes())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var size int32
-	err = binary.Read(conn, binary.BigEndian, &size)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// buf := make([]byte, size)
-	// _, err = io.ReadAtLeast(conn, buf, int(size))
-	// if err != nil {
-	// 	t.Fatal(err)
-	// }
-
-	// int             _msgversion; //111
-	// int             _num;        //1
-	// int             _nodetype;   //1
-
-	// int          _version;
-	// std::string  _txid;       //use
-	// unsigned int _voutid;     //use
-	// std::string  _privkey;    //
-	// int          _status;     //
-	// int          _licversion;  //use
-	// int64_t      _licperiod;  //use
-	// std::string  _licence;    //use
-	// int64_t      _nodeperiod;
-
-	type ResponseMsg struct {
-		msgversion int32
-		num        int32
-		nodeType   int32
-
-		version    int32
-		txid       string
-		voutid     uint32
-		privkey    string
-		status     int32
-		licversion int32
-		licperiod  int64
-		license    string
-		nodeperiod int64
-	}
-
-	res := &ResponseMsg{}
-
-	content := conn
-
-	// content := bytes.NewReader(buf)
-	err = binary.Read(content, binary.LittleEndian, &res.msgversion)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = binary.Read(content, binary.LittleEndian, &res.num)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = binary.Read(content, binary.LittleEndian, &res.nodeType)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = binary.Read(content, binary.LittleEndian, &res.version)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	res.txid, err = ReadString(conn)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = binary.Read(content, binary.LittleEndian, &res.voutid)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	res.privkey, err = ReadString(conn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = binary.Read(content, binary.LittleEndian, &res.status)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = binary.Read(content, binary.LittleEndian, &res.licversion)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = binary.Read(content, binary.LittleEndian, &res.licperiod)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	res.license, err = ReadString(conn)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = binary.Read(content, binary.LittleEndian, &res.nodeperiod)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// verify
-	if res.licperiod != period {
+	if p != period {
 		t.Failed()
 	}
 
-	if res.voutid != voutid {
+	if lic != signStr {
 		t.Failed()
 	}
 
-	if res.license != signStr {
-		t.Failed()
-	}
-
-	if res.licversion != licversion {
-		t.Failed()
-	}
 }
 
 func Test_VerifySignature(t *testing.T) {
-	if !VerifySignature(hashStr, signStr, ucenterPubkeyStr) {
+	ok, err := VerifySignature(hashStr, signStr, ucenterPubkeyStr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
 		t.Failed()
 	}
 }
@@ -248,5 +101,30 @@ func Test_MakePrivateAddr(t *testing.T) {
 }
 
 func Test_PublicKeyFromPrivateAddr(t *testing.T) {
-	fmt.Println(PublicKeyFromPrivateAddr("5JDu9q8sWyc19kECjDtygeSzTYSACpVg6giyh7u7twus4B5cMCF"))
+
+	pri := ("5KR4UPG5GbMakkkrsHuzmPZy9bLmkXAth56r99cZAvRRkNk5581")
+	pub := PublicKeyFromPrivateAddr(string(pri))
+	if pub != "042660fa685a470ff43ee6dacd6b8979ade29f8ce2bf1fd8f6844ed29983153fb8e5f3e90af800e892946dae75411dd1acf58559afc22166fb13ca21696f8880e7" {
+		t.FailNow()
+	}
+}
+
+func Test_Sign(t *testing.T) {
+	pri := ("5KR4UPG5GbMakkkrsHuzmPZy9bLmkXAth56r99cZAvRRkNk5581")
+	pub := PublicKeyFromPrivateAddr(string(pri))
+
+	hash := MakeRandomHash()
+	fmt.Println(len(hash), hash)
+	b64, err := Sign(hash, pri)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ok, err := VerifySignature(hash, b64, pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.FailNow()
+	}
 }
