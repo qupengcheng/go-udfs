@@ -31,6 +31,7 @@ type Config struct {
 
 	Master    bool
 	Blacklist Blacklist
+	Verify    VerifyInfo
 }
 
 const (

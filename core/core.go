@@ -262,7 +262,7 @@ func (n *IpfsNode) startOnlineServices(ctx context.Context, routingOption Routin
 		fmt.Println("MASTER NODE")
 	}
 	peerhost.Peerstore().Put(n.Identity, "master", cfg.Master)
-
+	peerhost.Peerstore().Put(n.Identity, "repo", n.Repo)
 	if err != nil {
 		return err
 	}

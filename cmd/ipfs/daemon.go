@@ -285,6 +285,19 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	pubsub, _ := req.Options[enableFloodSubKwd].(bool)
 	mplex, _ := req.Options[enableMultiplexKwd].(bool)
 
+	if !offline {
+		// check verify config
+		cfg, err := repo.Config()
+		if err != nil {
+			re.SetError(err, cmdkit.ErrNormal)
+			return
+		}
+		if cfg.Verify.Secret == "" || cfg.Verify.Txid == "" {
+			re.SetError(errors.New("must provide secret and txid in the config file!"), cmdkit.ErrNormal)
+			return
+		}
+	}
+
 	// Start assembling node config
 	ncfg := &core.BuildCfg{
 		Repo:      repo,

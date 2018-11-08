@@ -54,7 +54,6 @@ func init() {
 			log.Error("parse blacklist last handle time failed:", err.Error())
 		} else {
 			lastHandleTime = last
-			fmt.Println("blacklist last handle time:", string(t))
 		}
 	}
 }

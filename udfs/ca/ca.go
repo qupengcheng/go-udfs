@@ -16,11 +16,12 @@ import (
 )
 
 const (
-	ucenterAddress      = "132.232.98.139:5009"
+	ucenterAddress      = "ucenter.ulord.one:5009"
 	requestMsgSize      = 85
 	requestMsgVersion   = 111
 	requestMsgQuestType = 1
 	requestMsgTimestamp = 0
+	ucenterPubkey       = "03e947099921ee170da47a7acf48143c624d33950af362fc39a734b1b3188ec1e3"
 )
 
 func writeString(w io.Writer, data string) {
@@ -31,12 +32,18 @@ func writeString(w io.Writer, data string) {
 func MakeNodeInfoHash(txid string, voutid int32, pubkey string, licperiod int64, licversion int32) string {
 	b := bytes.NewBuffer(nil)
 	writeString(b, "Ulord Signed Message:\n")
-	binary.Write(b, binary.LittleEndian, txid)
+
+	writeString(b, txid)
+
 	binary.Write(b, binary.LittleEndian, voutid)
+
 	_pubkey, _ := hex.DecodeString(pubkey)
 	writeString(b, string(_pubkey))
+
 	binary.Write(b, binary.LittleEndian, licperiod)
+
 	binary.Write(b, binary.LittleEndian, licversion)
+
 	uint256 := NewSha2Hash(b.Bytes())
 	return uint256.String()
 }
@@ -83,7 +90,23 @@ func VerifySignature(hash, licenseInBase64, pubkeyInHex string) (bool, error) {
 	return EcdsaVerify(pubkey.Bytes(true), sign.Bytes(), NewUint256FromString(hash).Bytes()), nil
 }
 
-func RequestLicense(txid string, voutid int32) (period int64, license string, e error) {
+type LicenseMetaInfo struct {
+	MsgVersion int32 // 111
+	Num        int32 // 1
+	NodeType   int32 // 1
+	Version    int32
+
+	Txid       string // use
+	Voutid     uint32 // use
+	Privkey    string
+	Status     int32
+	Licversion int32  // use
+	LicPeriod  int64  // use
+	License    string // use
+	Nodeperiod int64
+}
+
+func RequestLicense(txid string, voutid int32) (info *LicenseMetaInfo, e error) {
 	type RequestMsg struct {
 		size      int32
 		version   int32
@@ -137,98 +160,83 @@ func RequestLicense(txid string, voutid int32) (period int64, license string, e 
 		return
 	}
 
-	type ResponseMsg struct {
-		msgversion int32
-		num        int32
-		nodeType   int32
-		version    int32
-		txid       string
-		voutid     uint32
-		privkey    string
-		status     int32
-		licversion int32
-		licperiod  int64
-		license    string
-		nodeperiod int64
-	}
+	res := &LicenseMetaInfo{}
 
-	res := &ResponseMsg{}
-
-	content := conn
-
-	// content := bytes.NewReader(buf)
-	err = binary.Read(content, binary.LittleEndian, &res.msgversion)
+	err = binary.Read(conn, binary.LittleEndian, &res.MsgVersion)
 	if err != nil {
 		e = errors.Wrap(err, "read response license message field <msgversion> failed")
 		return
 	}
 
-	err = binary.Read(content, binary.LittleEndian, &res.num)
+	err = binary.Read(conn, binary.LittleEndian, &res.Num)
 	if err != nil {
 		e = errors.Wrap(err, "read response license message field <num> failed")
 		return
 	}
-	err = binary.Read(content, binary.LittleEndian, &res.nodeType)
+	err = binary.Read(conn, binary.LittleEndian, &res.NodeType)
 	if err != nil {
 		e = errors.Wrap(err, "read response license message field <nodetype> failed")
 		return
 	}
-	err = binary.Read(content, binary.LittleEndian, &res.version)
+	err = binary.Read(conn, binary.LittleEndian, &res.Version)
 	if err != nil {
 		e = errors.Wrap(err, "read response license message field <version> failed")
 		return
 	}
 
-	res.txid, err = ReadString(conn)
+	res.Txid, err = ReadString(conn)
 	if err != nil {
 		e = errors.Wrap(err, "read response license message field <txid> failed")
 		return
 	}
 
-	err = binary.Read(content, binary.LittleEndian, &res.voutid)
+	err = binary.Read(conn, binary.LittleEndian, &res.Voutid)
 	if err != nil {
 		e = errors.Wrap(err, "read response license message field <voutid> failed")
 		return
 	}
 
-	res.privkey, err = ReadString(conn)
+	res.Privkey, err = ReadString(conn)
 	if err != nil {
 		e = errors.Wrap(err, "read response license message field <privkey> failed")
 		return
 	}
-	err = binary.Read(content, binary.LittleEndian, &res.status)
+	err = binary.Read(conn, binary.LittleEndian, &res.Status)
 	if err != nil {
 		e = errors.Wrap(err, "read response license message field <status> failed")
 		return
 	}
-	err = binary.Read(content, binary.LittleEndian, &res.licversion)
+	err = binary.Read(conn, binary.LittleEndian, &res.Licversion)
 	if err != nil {
 		e = errors.Wrap(err, "read response license message field <licversion> failed")
 		return
 	}
 
-	err = binary.Read(content, binary.LittleEndian, &res.licperiod)
+	err = binary.Read(conn, binary.LittleEndian, &res.LicPeriod)
 	if err != nil {
 		e = errors.Wrap(err, "read response license message field <licperiod> failed")
 		return
 	}
 
-	res.license, err = ReadString(conn)
+	res.License, err = ReadString(conn)
 	if err != nil {
 		e = errors.Wrap(err, "read response license message field <license> failed")
 		return
 	}
 
-	err = binary.Read(content, binary.LittleEndian, &res.nodeperiod)
+	err = binary.Read(conn, binary.LittleEndian, &res.Nodeperiod)
 	if err != nil {
 		e = errors.Wrap(err, "read response license message field <nodeperiod> failed")
 		return
 	}
 
-	license = res.license
-	period = res.licperiod
+	info = res
 	e = nil
 	return
+}
+
+func LicenseCenterPubkey() string {
+	return ucenterPubkey
 }
 
 func Sign(hashInHex, pri string) (string, error) {
