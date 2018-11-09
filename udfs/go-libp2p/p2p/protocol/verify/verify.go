@@ -52,6 +52,10 @@ func sendVerifyAskMsg(s inet.Stream) (string, error) {
 }
 
 func doVerify(mes *pb.Verify, rhash string) error {
+	if time.Now().After(time.Unix(mes.GetPeriod(), 0)) {
+		return errors.New("the license have out of date")
+	}
+
 	// verify license
 	nodehash := ca.MakeNodeInfoHash(mes.GetTxid(), mes.GetVoutid(), mes.GetPubkey(), mes.GetPeriod(), mes.GetLicversion())
 	if nodehash == "" {
@@ -64,7 +68,7 @@ func doVerify(mes *pb.Verify, rhash string) error {
 	}
 
 	if !ok {
-		return errors.New("verify license failed")
+		return errors.Errorf("verify license failed")
 	}
 
 	// verify node signature
@@ -125,9 +129,11 @@ func VerifyConn(c inet.Conn) error {
 	log.Debugf("%s received message from %s %s", ProtocolVerify,
 		c.RemotePeer(), c.RemoteMultiaddr())
 
+	log.Debugf("received verify msg for %s : %v\n", c.RemotePeer(), mes)
+
 	err = doVerify(mes, rhash)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "verify %v failed", c.RemotePeer())
 	}
 
 	return nil
@@ -181,21 +187,37 @@ func requestVerify(s inet.Stream, h host.Host, rhash string) error {
 		return errors.Wrap(err, "check local verify info failed")
 	}
 
+	// request license
+	if vfi.Pubkey == "" {
+		vfi.Pubkey, err = ca.PublicKeyFromPrivateAddr(vfi.Secret)
+		if err != nil {
+			return errors.Wrap(err, "got public key from secret failed")
+		}
+	}
+
+	// check need request license
+	if time.Now().After(time.Unix(vfi.Period, 0)) || vfi.License == "" || vfi.Licversion == 0 {
+		log.Debug("request license...")
+
+		lbi, err := ca.RequestLicense(vfi.Txid, vfi.Voutid)
+		if err != nil {
+			return errors.Wrap(err, "request license failed")
+		}
+		vfi.License = lbi.License
+		vfi.Period = lbi.LicPeriod
+		vfi.Licversion = lbi.Licversion
+
+		err = repo.SetConfig(cfg)
+		if err != nil {
+			return errors.Wrap(err, "save config for new license to file failed")
+		}
+	}
+
 	// make signature for random hash
 	sign, err := ca.Sign(rhash, vfi.Secret)
 	if err != nil {
 		return errors.Wrap(err, "sign for rhash failed")
 	}
-
-	// request license
-	vfi.Pubkey = ca.PublicKeyFromPrivateAddr(vfi.Secret)
-	lbi, err := ca.RequestLicense(vfi.Txid, vfi.Voutid)
-	if err != nil {
-		return errors.Wrap(err, "request license failed")
-	}
-	vfi.License = lbi.License
-	vfi.Period = lbi.LicPeriod
-	vfi.Licversion = lbi.Licversion
 
 	// send verify msg
 	w := ggio.NewDelimitedWriter(s)

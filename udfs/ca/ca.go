@@ -62,13 +62,13 @@ func MakePrivateAddr() string {
 	return addr.String()
 }
 
-func PublicKeyFromPrivateAddr(privateAddr string) string {
+func PublicKeyFromPrivateAddr(privateAddr string) (string, error) {
 	addr, err := DecodePrivateAddr(privateAddr)
 	if err != nil {
-		return ""
+		return "", err
 	}
 
-	return hex.EncodeToString(addr.Pubkey)
+	return hex.EncodeToString(addr.Pubkey), nil
 }
 
 func VerifySignature(hash, licenseInBase64, pubkeyInHex string) (bool, error) {
