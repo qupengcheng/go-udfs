@@ -26,6 +26,11 @@ const ProtocolVerify = "/ipfs/verify/0.0.1"
 
 var log = logging.Logger("net/verify")
 
+var (
+	gcfg   *config.Config
+	pubkey string
+)
+
 func readVerifyAskValue(s inet.Stream) (string, error) {
 	r := ggio.NewDelimitedReader(s, 1024)
 	mes := pb.VerifyAsk{}
@@ -51,7 +56,7 @@ func sendVerifyAskMsg(s inet.Stream) (string, error) {
 	return rhash, nil
 }
 
-func doVerify(mes *pb.Verify, rhash string) error {
+func doVerify(mes *pb.Verify, rhash string, srvPubkey string) error {
 	if time.Now().After(time.Unix(mes.GetPeriod(), 0)) {
 		return errors.New("the license have out of date")
 	}
@@ -61,14 +66,16 @@ func doVerify(mes *pb.Verify, rhash string) error {
 	if nodehash == "" {
 		return errors.New("make node hash failed")
 	}
+	log.Debugf("got nodehash=<%s> with txid=<%s>, voutid=<%d>, pubkey=<%s>,  period=<%d>, licversion=<%d>\n",
+		nodehash, mes.GetTxid(), mes.GetVoutid(), mes.GetPubkey(), mes.GetPeriod(), mes.GetLicversion())
 
-	ok, err := ca.VerifySignature(nodehash, mes.GetLicense(), ca.LicenseCenterPubkey())
+	ok, err := ca.VerifySignature(nodehash, mes.GetLicense(), srvPubkey)
 	if err != nil {
 		return errors.Wrap(err, "verify license error")
 	}
 
 	if !ok {
-		return errors.Errorf("verify license failed")
+		return errors.Errorf("verify license failed with nodehash=<%s>, license=<%s>, srvPubkey=<%s>\n", nodehash, mes.GetLicense(), srvPubkey)
 	}
 
 	// verify node signature
@@ -78,14 +85,38 @@ func doVerify(mes *pb.Verify, rhash string) error {
 	}
 
 	if !ok {
-		return errors.New("verify node signature failed")
+		return errors.Errorf("verify node signature failed with rhash=<%s>, rsigh=<%s>, pubkey=<%s>",
+			rhash, mes.GetRandomSign(), mes.GetPubkey())
 	}
 
 	return nil
 }
 
 // VerifyConn verify whether this connection is legal, if not, must close this connection
-func VerifyConn(c inet.Conn) error {
+func VerifyConn(c inet.Conn, h host.Host) error {
+	var err error
+
+	// get the verify info
+	if gcfg == nil {
+		repoInf, err := h.Peerstore().Get(c.LocalPeer(), "repo")
+		if err != nil {
+			return errors.Wrap(err, "got repo object from peerstore failed")
+		}
+		repo := repoInf.(repo.Repo)
+		cfg, err := repo.Config()
+		if err != nil {
+			return errors.Wrap(err, "got config object from repo failed")
+		}
+		gcfg = cfg
+	}
+
+	// get pubkey
+	if pubkey == "" {
+		pubkey, err = ca.PublicKeyFromPrivateAddr(gcfg.Verify.Secret)
+		if err != nil {
+			return errors.Wrap(err, "got public key from secret failed")
+		}
+	}
 
 	// make new stream
 	s, err := c.NewStream()
@@ -131,7 +162,7 @@ func VerifyConn(c inet.Conn) error {
 
 	log.Debugf("received verify msg for %s : %v\n", c.RemotePeer(), mes)
 
-	err = doVerify(mes, rhash)
+	err = doVerify(mes, rhash, gcfg.Verify.ServerPubkey)
 	if err != nil {
 		return errors.Wrapf(err, "verify %v failed", c.RemotePeer())
 	}
@@ -139,13 +170,27 @@ func VerifyConn(c inet.Conn) error {
 	return nil
 }
 
-func checkVerifyInfo(vfi *config.VerifyInfo) error {
+func CheckVerifyInfo(vfi *config.VerifyInfo) error {
+	if vfi.ServerAddress == "" {
+		return errors.New("the field <ServerAddress> in verify into is not set")
+	}
+	if vfi.ServerPubkey == "" {
+		return errors.New("the field <ServerPubkey> in verify into is not set")
+	}
 	if len(vfi.Txid) == 0 {
-		return errors.New("the field <txid> in verify info is empty")
+		return errors.New("the field <Txid> in verify info is not set")
 	}
 
 	if len(vfi.Secret) == 0 {
-		return errors.New("the field <secret> in verify info is empty")
+		return errors.New("the field <Secret> in verify info is not set")
+	}
+
+	if vfi.Voutid < 0 {
+		return errors.New("the field <Voutid> in verify info is not legal")
+	}
+
+	if vfi.Licversion < 0 {
+		return errors.New("the field <Licversion> in verify info is not legal ")
 	}
 
 	return nil
@@ -169,37 +214,17 @@ func RequestHandler(s inet.Stream, h host.Host) {
 }
 
 func requestVerify(s inet.Stream, h host.Host, rhash string) error {
-
 	// get the verify info
-	repoInf, err := h.Peerstore().Get(s.Conn().LocalPeer(), "repo")
-	if err != nil {
-		return errors.Wrap(err, "got repo object from peerstore failed")
-	}
-	repo := repoInf.(repo.Repo)
-	cfg, err := repo.Config()
-	if err != nil {
-		return errors.Wrap(err, "got config object from repo failed")
-	}
-	vfi := &cfg.Verify
-
-	err = checkVerifyInfo(vfi)
-	if err != nil {
-		return errors.Wrap(err, "check local verify info failed")
-	}
+	vfi := &gcfg.Verify
 
 	// request license
-	if vfi.Pubkey == "" {
-		vfi.Pubkey, err = ca.PublicKeyFromPrivateAddr(vfi.Secret)
-		if err != nil {
-			return errors.Wrap(err, "got public key from secret failed")
-		}
-	}
+	var err error
 
 	// check need request license
-	if time.Now().After(time.Unix(vfi.Period, 0)) || vfi.License == "" || vfi.Licversion == 0 {
+	if time.Now().After(time.Unix(vfi.Period, 0)) || vfi.License == "" {
 		log.Debug("request license...")
 
-		lbi, err := ca.RequestLicense(vfi.Txid, vfi.Voutid)
+		lbi, err := ca.RequestLicense(vfi.ServerAddress, vfi.Txid, vfi.Voutid)
 		if err != nil {
 			return errors.Wrap(err, "request license failed")
 		}
@@ -207,7 +232,11 @@ func requestVerify(s inet.Stream, h host.Host, rhash string) error {
 		vfi.Period = lbi.LicPeriod
 		vfi.Licversion = lbi.Licversion
 
-		err = repo.SetConfig(cfg)
+		repoInf, err := h.Peerstore().Get(s.Conn().LocalPeer(), "repo")
+		if err != nil {
+			return errors.Wrap(err, "got repo object from peerstore failed")
+		}
+		err = repoInf.(repo.Repo).SetConfig(gcfg)
 		if err != nil {
 			return errors.Wrap(err, "save config for new license to file failed")
 		}
@@ -225,7 +254,7 @@ func requestVerify(s inet.Stream, h host.Host, rhash string) error {
 		Txid:       &vfi.Txid,
 		Voutid:     &vfi.Voutid,
 		Period:     &vfi.Period,
-		Pubkey:     &vfi.Pubkey,
+		Pubkey:     &pubkey,
 		License:    &vfi.License,
 		Licversion: &vfi.Licversion,
 		RandomSign: &sign,

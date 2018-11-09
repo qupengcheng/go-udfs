@@ -12,7 +12,6 @@ package core
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -77,6 +76,8 @@ import (
 
 	dht "github.com/ipfs/go-ipfs/udfs/go-libp2p-kad-dht"
 	dhtopts "github.com/ipfs/go-ipfs/udfs/go-libp2p-kad-dht/opts"
+
+	"github.com/pkg/errors"
 )
 
 const IpnsValidatorTag = "ipns"
@@ -253,18 +254,22 @@ func (n *IpfsNode) startOnlineServices(ctx context.Context, routingOption Routin
 
 	// check self if a master node
 	if !cfg.Master {
-		// check exist environment variant IPFS_MASTER exist
-		if os.Getenv("_IPFS_MASTER_NODE") != "" {
+		// check exist environment variant UDFS_MASTER exist
+		if os.Getenv("UDFS_MASTER") != "" {
 			cfg.Master = true
 		}
 	}
 	if cfg.Master {
 		fmt.Println("MASTER NODE")
 	}
-	peerhost.Peerstore().Put(n.Identity, "master", cfg.Master)
-	peerhost.Peerstore().Put(n.Identity, "repo", n.Repo)
+	err = peerhost.Peerstore().Put(n.Identity, "master", cfg.Master)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "put master info to peerstore failed")
+	}
+
+	err = peerhost.Peerstore().Put(n.Identity, "repo", n.Repo)
+	if err != nil {
+		return errors.Wrap(err, "put repo info to peerstore failed")
 	}
 
 	if err := n.startOnlineServicesWithHost(ctx, peerhost, routingOption, pubsub, ipnsps); err != nil {

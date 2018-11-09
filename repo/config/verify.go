@@ -1,11 +1,14 @@
 package config
 
 type VerifyInfo struct {
+	ServerAddress string
+	ServerPubkey  string
+
 	Txid       string
 	Voutid     int32
-	Period     int64
 	Licversion int32
 	Secret     string
-	Pubkey     string
-	License    string
+
+	License string
+	Period  int64
 }

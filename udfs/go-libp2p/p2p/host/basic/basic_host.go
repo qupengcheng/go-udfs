@@ -204,7 +204,7 @@ func (h *BasicHost) newConnHandler(c inet.Conn) {
 	// by misremembering protocols between reconnects
 	h.Peerstore().SetProtocols(c.RemotePeer())
 
-	err := verify.VerifyConn(c)
+	err := verify.VerifyConn(c, h)
 	if err != nil {
 		log.Errorf("verify %v connection failed: %v\n", c.RemoteMultiaddr(), err.Error())
 		c.Close()

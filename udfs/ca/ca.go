@@ -11,17 +11,14 @@ import (
 
 	"encoding/base64"
 
-	"github.com/piotrnar/gocoin/lib/btc"
 	"github.com/pkg/errors"
 )
 
 const (
-	ucenterAddress      = "ucenter.ulord.one:5009"
 	requestMsgSize      = 85
 	requestMsgVersion   = 111
 	requestMsgQuestType = 1
 	requestMsgTimestamp = 0
-	ucenterPubkey       = "03e947099921ee170da47a7acf48143c624d33950af362fc39a734b1b3188ec1e3"
 )
 
 func writeString(w io.Writer, data string) {
@@ -106,7 +103,7 @@ type LicenseMetaInfo struct {
 	Nodeperiod int64
 }
 
-func RequestLicense(txid string, voutid int32) (info *LicenseMetaInfo, e error) {
+func RequestLicense(servAddr string, txid string, voutid int32) (info *LicenseMetaInfo, e error) {
 	type RequestMsg struct {
 		size      int32
 		version   int32
@@ -139,7 +136,7 @@ func RequestLicense(txid string, voutid int32) (info *LicenseMetaInfo, e error) 
 		return
 	}
 
-	conn, err := net.Dial("tcp", ucenterAddress)
+	conn, err := net.Dial("tcp", servAddr)
 	if err != nil {
 		e = errors.Wrap(err, "dial license center service failed")
 		return
@@ -235,10 +232,6 @@ func RequestLicense(txid string, voutid int32) (info *LicenseMetaInfo, e error) 
 	return
 }
 
-func LicenseCenterPubkey() string {
-	return ucenterPubkey
-}
-
 func Sign(hashInHex, pri string) (string, error) {
 	signkey, err := DecodePrivateAddr(pri)
 	if err != nil {
@@ -251,7 +244,7 @@ func Sign(hashInHex, pri string) (string, error) {
 	if signkey.IsCompressed() {
 		sb[0] += 4
 	}
-	r, s, err := btc.EcdsaSign(signkey.Key, NewUint256FromString(hashInHex).Bytes())
+	r, s, err := EcdsaSign(signkey.Key, NewUint256FromString(hashInHex).Bytes())
 	if err != nil {
 		return "", err
 	}

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	_ "expvar"
 	"fmt"
 	"net"
@@ -10,6 +9,8 @@ import (
 	"os"
 	"sort"
 	"sync"
+
+	"github.com/pkg/errors"
 
 	utilmain "github.com/ipfs/go-ipfs/cmd/ipfs/util"
 	oldcmds "github.com/ipfs/go-ipfs/commands"
@@ -27,6 +28,8 @@ import (
 	"gx/ipfs/QmYYv3QFnfQbiwmi1tpkgKF8o4xFnZoBrvpupTiGJwL9nH/client_golang/prometheus"
 	ma "gx/ipfs/QmYmsdtJ3HsodkePE3eU3TsCaP2YvPZJ4LoXnNkDE5Tpt7/go-multiaddr"
 	"gx/ipfs/QmdE4gMduCKCGAcczM2F5ioYDfdeKuPix138wrES1YSr7f/go-ipfs-cmdkit"
+
+	"github.com/ipfs/go-ipfs/udfs/go-libp2p/p2p/protocol/verify"
 )
 
 const (
@@ -51,6 +54,11 @@ const (
 	enableFloodSubKwd         = "enable-pubsub-experiment"
 	enableIPNSPubSubKwd       = "enable-namesys-pubsub"
 	enableMultiplexKwd        = "enable-mplex-experiment"
+	verifyTxid                = "txid"
+	verifyVoutid              = "voutid"
+	verifyLicversion          = "licversion"
+	verifySecret              = "secret"
+
 	// apiAddrKwd    = "address-api"
 	// swarmAddrKwd  = "address-swarm"
 )
@@ -164,6 +172,11 @@ Headers.
 		cmdkit.BoolOption(enableFloodSubKwd, "Instantiate the ipfs daemon with the experimental pubsub feature enabled."),
 		cmdkit.BoolOption(enableIPNSPubSubKwd, "Enable IPNS record distribution through pubsub; enables pubsub."),
 		cmdkit.BoolOption(enableMultiplexKwd, "Add the experimental 'go-multiplex' stream muxer to libp2p on construction.").WithDefault(true),
+
+		cmdkit.StringOption(verifyTxid, "Set the verify txid, NOTE: it will save to config."),
+		cmdkit.StringOption(verifySecret, "Set the verify sercret, NOTE: it will save to config."),
+		cmdkit.IntOption(verifyVoutid, "Set the verify voutid, NOTE: it will save to config.").WithDefault(-1),
+		cmdkit.IntOption(verifyLicversion, "Set the verify licversion,  NOTE:  it will save to config.").WithDefault(-1),
 
 		// TODO: add way to override addresses. tricky part: updating the config if also --init.
 		// cmdkit.StringOption(apiAddrKwd, "Address for the daemon rpc API (overrides config)"),
@@ -285,15 +298,47 @@ func daemonFunc(req *cmds.Request, re cmds.ResponseEmitter, env cmds.Environment
 	pubsub, _ := req.Options[enableFloodSubKwd].(bool)
 	mplex, _ := req.Options[enableMultiplexKwd].(bool)
 
-	if !offline {
-		// check verify config
-		cfg, err := repo.Config()
+	txid, _ := req.Options[verifyTxid].(string)
+	secret, _ := req.Options[verifySecret].(string)
+	voutid, _ := req.Options[verifyVoutid].(int)
+	licversion, _ := req.Options[verifyLicversion].(int)
+
+	rcfg, err := repo.Config()
+	if err != nil {
+		re.SetError(err, cmdkit.ErrNormal)
+		return
+	}
+
+	needSave := false
+	if txid != "" {
+		rcfg.Verify.Txid = txid
+		needSave = true
+	}
+	if voutid != -1 {
+		rcfg.Verify.Voutid = int32(voutid)
+		needSave = true
+	}
+	if licversion != -1 {
+		rcfg.Verify.Licversion = int32(licversion)
+		needSave = true
+	}
+	if secret != "" {
+		rcfg.Verify.Secret = secret
+		needSave = true
+	}
+	if needSave {
+		err = repo.SetConfig(rcfg)
 		if err != nil {
-			re.SetError(err, cmdkit.ErrNormal)
+			re.SetError(errors.Wrap(err, "Save verify info to config file failed"), cmdkit.ErrNormal)
 			return
 		}
-		if cfg.Verify.Secret == "" || cfg.Verify.Txid == "" {
-			re.SetError(errors.New("must provide secret and txid in the config file!"), cmdkit.ErrNormal)
+	}
+
+	if !offline {
+		// check verify config
+		err = verify.CheckVerifyInfo(&rcfg.Verify)
+		if err != nil {
+			re.SetError(errors.Wrap(err, "check verify info failed"), cmdkit.ErrNormal)
 			return
 		}
 	}
